@@ -1,0 +1,54 @@
+.custom-card .card-h {
+  flex-wrap: wrap;
+}
+
+.custom-card .custom-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.avatar-custom {
+  background: var(--surface-2);
+  color: var(--accent);
+}
+
+.custom-metric {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  padding-block: 4px;
+}
+
+.custom-metric-label {
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.custom-metric-value {
+  font-weight: 600;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.custom-metric-bar,
+.custom-metric-reset {
+  grid-column: 1 / -1;
+}
+
+.custom-card .bar-fill {
+  transition: none;
+}
+
+.custom-meta,
+.custom-metric-reset {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.custom-error {
+  color: var(--text-warn);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}

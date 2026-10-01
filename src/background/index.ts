@@ -12,6 +12,8 @@ import {
 import type { ExtensionMessage } from '../core/store';
 import { PROVIDER_IDS } from '../providers/types';
 import type { ProviderId } from '../providers/types';
+import { isCustomMessage } from '../custom/config';
+import { registerCustomProviders } from '../custom/runtime';
 
 const SCHEDULE_KEY = 'schedule';
 const TICK_ALARM = 'tick';
@@ -111,6 +113,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
+  if (isCustomMessage(message)) return;
   if (message.type === 'refresh') {
     void (async () => {
       if (message.provider !== undefined) {
@@ -171,3 +174,5 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 chrome.permissions.onAdded.addListener(() => {
   void runDue();
 });
+
+registerCustomProviders();

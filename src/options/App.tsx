@@ -32,6 +32,7 @@ import {
   statusLabel,
   validateProviderSettings,
 } from './logic';
+import { CustomProviders } from './CustomProviders';
 
 type FocusedKeys = Partial<Record<ProviderId, boolean>>;
 
@@ -559,6 +560,8 @@ export function App() {
           );
         })}
       </section>
+
+      <CustomProviders />
 
       <section class="section">
         <h2>표시 설정</h2>

@@ -31,6 +31,9 @@ import {
 import { GrantBanner } from './components/GrantBanner';
 import { SubscriptionCard } from './components/SubscriptionCard';
 import { CostTable } from './components/CostTable';
+import { CustomProviderCards } from './components/CustomProviderCards';
+import { useCustomData } from '../custom/use-data';
+import { requestCustomRefresh } from '../custom/store';
 
 const STALE_THRESHOLD_MS = 30_000;
 const SUBSCRIPTION_IDS: ProviderId[] = ['claude', 'chatgpt', 'zai'];
@@ -43,6 +46,8 @@ export function App() {
   const [now, setNow] = useState(() => new Date());
   const [loaded, setLoaded] = useState(false);
   const refreshedOnOpen = useRef(false);
+  const custom = useCustomData();
+  const [customRefreshError, setCustomRefreshError] = useState('');
 
   const load = useCallback(async () => {
     const [s, sn, ev] = await Promise.all([getSettings(), getSnapshots(), getEvents()]);
@@ -88,7 +93,7 @@ export function App() {
 
   const enabledSub = SUBSCRIPTION_IDS.filter((id) => settings.providers[id].enabled);
   const enabledCost = COST_IDS.filter((id) => settings.providers[id].enabled);
-  const anyEnabled = enabledSub.length > 0 || enabledCost.length > 0;
+  const anyEnabled = enabledSub.length > 0 || enabledCost.length > 0 || custom.providers.some((p) => p.enabled);
 
   const allGrantSnapshots = enabledSub
     .map((id) => snapshots[id])
@@ -105,7 +110,15 @@ export function App() {
       return Date.parse(s.fetchedAt) > Date.parse(oldest) ? oldest : s.fetchedAt;
     }, null);
 
-  const handleRefresh = () => { requestRefresh(); };
+  const handleRefresh = () => {
+    requestRefresh();
+    setCustomRefreshError('');
+    if (custom.providers.some((p) => p.enabled)) {
+      void requestCustomRefresh().catch((cause: unknown) => {
+        setCustomRefreshError(cause instanceof Error ? 'Custom provider 갱신에 실패했습니다' : '백그라운드 응답 없음');
+      });
+    }
+  };
   const handleSettings = () => { chrome.runtime.openOptionsPage(); };
 
   return (
@@ -167,6 +180,8 @@ export function App() {
           />
         </section>
       )}
+      <CustomProviderCards providers={custom.providers} snapshots={custom.snapshots} now={now} settings={settings} />
+      {(custom.error || customRefreshError) && <p class="custom-error" role="alert">{custom.error || customRefreshError}</p>}
     </div>
   );
 }

@@ -1,0 +1,66 @@
+.custom-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.custom-section-heading h2 {
+  margin-bottom: 0;
+}
+
+.custom-help {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  margin-bottom: var(--space-3);
+}
+
+.custom-editor-fields {
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  min-width: 0;
+}
+
+.custom-window-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.custom-actions {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.custom-provider-name {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.custom-providers .input,
+.custom-providers .select {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.custom-providers textarea {
+  resize: vertical;
+  font-family: var(--font-mono);
+}
+
+.custom-providers button:focus-visible,
+.custom-providers input:focus-visible,
+.custom-providers textarea:focus-visible,
+.custom-providers select:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: var(--space-1);
+}
