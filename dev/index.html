@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>LLM Usage Glance - dev preview</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; line-height: 1.6; }
+      code { background: #f3f4f6; padding: 1px 6px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>LLM Usage Glance - dev preview</h1>
+    <p>Chrome 확장으로 로드하지 않고 일반 탭에서 UI를 확인합니다. 데이터는 <code>dev/fixtures.ts</code>의 샘플이며 네트워크 요청은 하지 않습니다.</p>
+    <h2>팝업</h2>
+    <ul>
+      <li><a href="/dev/popup.html?scenario=all">정상 (모든 provider, reset 권 포함)</a></li>
+      <li><a href="/dev/popup.html?scenario=errors">오류 상태 모음 (로그인 필요, 챌린지, 스키마 변경 등)</a></li>
+      <li><a href="/dev/popup.html?scenario=empty">아무것도 설정 안 됨</a></li>
+    </ul>
+    <h2>옵션</h2>
+    <ul>
+      <li><a href="/dev/options.html?scenario=all">모두 켜짐</a></li>
+      <li><a href="/dev/options.html?scenario=empty">모두 꺼짐</a></li>
+    </ul>
+    <p>실제 API 호출 확인은 <code>npm run probe -- --help</code>를 보세요.</p>
+  </body>
+</html>

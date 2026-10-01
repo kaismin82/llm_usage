@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "LLM Usage Glance",
+  "version": "0.1.0",
+  "description": "Shows your own LLM subscription limits and API spend (Claude, ChatGPT, Z.ai, Poe, LiteLLM, OpenRouter) in one popup.",
+  "minimum_chrome_version": "116",
+  "permissions": ["storage", "alarms", "scripting"],
+  "optional_permissions": ["notifications"],
+  "optional_host_permissions": [
+    "https://claude.ai/*",
+    "https://chatgpt.com/*",
+    "https://api.z.ai/*",
+    "https://open.bigmodel.cn/*",
+    "https://api.poe.com/*",
+    "https://openrouter.ai/*",
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "LLM Usage Glance", "default_popup": "popup.html" },
+  "options_ui": { "page": "options.html", "open_in_tab": true }
+}
