@@ -39,6 +39,8 @@ export interface ResetGrant {
   expiresAt?: string | null;
   title?: string | null;
   status: GrantStatus;
+  /** Count-only fallback without a verified individual credit identity. */
+  countOnly?: boolean;
 }
 
 export type SnapshotStatus =

@@ -182,6 +182,7 @@ async function synthesizeGrants(count: number): Promise<ResetGrant[]> {
       scope: 'unknown',
       remaining: 1,
       status: 'available',
+      countOnly: true,
     })),
   );
 }
@@ -200,21 +201,25 @@ async function credits(
       res.json.credits.flatMap((credit) => {
         if (!isRecord(credit) || (typeof credit.id !== 'string' && typeof credit.id !== 'number')) return [];
         const id = credit.id;
+        const status = grantStatus(credit.status);
         return [
           (async (): Promise<ResetGrant> => ({
             provider: 'chatgpt',
             idHash: await hashId('chatgpt', id),
             scope: grantScope(credit.reset_type),
-            remaining: 1,
+            remaining: status === 'available' ? 1 : 0,
             startsAt: typeof credit.granted_at === 'string' ? credit.granted_at : null,
             expiresAt: typeof credit.expires_at === 'string' ? credit.expires_at : null,
             title: typeof credit.title === 'string' ? credit.title : null,
-            status: grantStatus(credit.status),
+            status,
           }))(),
         ];
       }),
     );
-    return grants.length > 0 ? grants : synthesizeGrants(availableCount);
+    // Usage supplies the current remaining count. Detail/history data can lag after a reset;
+    // do not let it resurrect consumed credits or invent which individual credit remains.
+    const detailedCount = grants.filter((grant) => grant.status === 'available').length;
+    return detailedCount === availableCount ? grants : synthesizeGrants(availableCount);
   } catch {
     return synthesizeGrants(availableCount);
   }
@@ -312,10 +317,9 @@ export const chatgptAdapter: ProviderAdapter = {
         snapshot.grantSupport = 'unsupported';
       } else {
         snapshot.grantSupport = 'supported';
-        const previousAvailable = ctx.previous?.grants.filter((grant) => grant.status === 'available').length;
-        snapshot.grants = availableCount > 0 && (previousAvailable === undefined || previousAvailable !== availableCount)
-          ? await credits(ctx, availableCount, headers)
-          : ctx.previous?.grants ?? [];
+        // A successful zero count clears old available grants. Refresh positive-count details
+        // even when the total is unchanged, since a consumed credit may have been replaced.
+        snapshot.grants = availableCount === 0 ? [] : await credits(ctx, availableCount, headers);
       }
       return snapshot;
     } catch (error) {
