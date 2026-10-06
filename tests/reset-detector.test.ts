@@ -66,6 +66,34 @@ describe('reset detector', () => {
     ]);
   });
 
+  it.each([false, true])('does not invent credit replacements when switching count-only data (previous count-only: %s)', (previousCountOnly) => {
+    const detailed = snapshot({ grants: [grant({ expiresAt: null })] });
+    const countOnly = snapshot({ grants: [grant({ idHash: 'count-0', scope: 'unknown', expiresAt: null, countOnly: true })] });
+    const previous = previousCountOnly ? countOnly : detailed;
+    const current = previousCountOnly ? detailed : countOnly;
+    expect(detectResetEvents(previous, current, now)).toEqual([]);
+  });
+
+  it.each([
+    { remaining: 0, expected: ['GRANT_USED'] },
+    { remaining: 2, expected: ['GRANT_ADDED'] },
+  ])('detects count-only inventory changes without comparing synthetic IDs: $remaining', ({ remaining, expected }) => {
+    const previous = snapshot({ grants: [grant({ idHash: 'count-0', scope: 'unknown', expiresAt: null, countOnly: true })] });
+    const current = snapshot({ grants: remaining === 0 ? [] : [grant({ remaining, expiresAt: null })] });
+    expect(detectResetEvents(previous, current, now).map((event) => event.type)).toEqual(expected);
+  });
+
+  it('preserves known expiry events during a count-only transition without calling expiry usage', () => {
+    const previous = snapshot({ grants: [
+      grant({ expiresAt: '2026-10-01T11:00:00.000Z' }),
+      grant({ idHash: 'still-available', expiresAt: null }),
+    ] });
+    const current = snapshot({ grants: [grant({ idHash: 'count-0', expiresAt: null, countOnly: true })] });
+    expect(detectResetEvents(previous, current, now)).toEqual([
+      { type: 'GRANT_EXPIRED', provider: 'claude', scope: 'all', at: now.toISOString() },
+    ]);
+  });
+
   it('reports an expiring grant only when it crosses the 48-hour threshold', () => {
     const expiringGrant = grant({ expiresAt: '2026-10-02T12:00:00.000Z' });
     const previous = snapshot({ attemptedAt: '2026-09-29T11:00:00.000Z', grants: [expiringGrant] });

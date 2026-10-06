@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { makeCtx } from './helpers';
+import { baseSnapshot } from '../src/providers/util';
+import { availableGrantCount as popupGrantCount } from '../src/popup/format';
+import { availableGrantCount, detectResetEvents } from '../src/core/reset-detector';
 
 const SESSION = 'https://chatgpt.com/api/auth/session';
 const USAGE = 'https://chatgpt.com/backend-api/wham/usage';
@@ -93,6 +96,120 @@ describe('chatgptAdapter', () => {
       Authorization: expect.stringContaining('Bearer '),
       'ChatGPT-Account-Id': 'workspace-1',
     });
+  });
+
+  it('removes the last used reset credit instead of keeping the previous available grant', async () => {
+    const previous = baseSnapshot('chatgpt', new Date('2026-10-01T11:00:00Z'));
+    previous.grantSupport = 'supported';
+    previous.grants = [{ provider: 'chatgpt', idHash: 'previous-grant', scope: 'weekly_7d', remaining: 1, status: 'available' }];
+    const ctx = makeCtx({
+      provider: 'chatgpt',
+      previous,
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: USAGE, reply: { json: { rate_limit: {}, rate_limit_reset_credits: { available_count: 0 } } } },
+      ],
+    });
+
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    expect(snapshot).toMatchObject({ status: 'ok', grantSupport: 'supported', grants: [] });
+    expect(popupGrantCount(snapshot)).toBe(0);
+    expect(availableGrantCount(snapshot)).toBe(0);
+    expect(detectResetEvents(previous, snapshot, ctx.now())).toContainEqual({
+      type: 'GRANT_USED', provider: 'chatgpt', scope: 'weekly_7d', at: ctx.now().toISOString(),
+    });
+    expect(ctx.calls.map((call) => call.url)).toEqual([SESSION, USAGE]);
+    expect(previous.grants[0]?.status).toBe('available');
+  });
+
+  it('uses the current count when the detail endpoint still returns already-used credits as available', async () => {
+    const previous = baseSnapshot('chatgpt', new Date('2026-10-01T11:00:00Z'));
+    previous.grantSupport = 'supported';
+    previous.grants = ['old-1', 'old-2'].map((idHash) => ({
+      provider: 'chatgpt' as const, idHash, scope: 'unknown' as const, remaining: 1, status: 'available' as const,
+    }));
+    const ctx = makeCtx({
+      provider: 'chatgpt', previous,
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: USAGE, reply: { json: { rate_limit: {}, rate_limit_reset_credits: { available_count: 1 } } } },
+        { match: CREDITS, reply: { json: { credits: [
+          { id: 'old-1', status: 'available' }, { id: 'old-2', status: 'available' },
+        ] } } },
+      ],
+    });
+
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    expect(snapshot.status).toBe('ok');
+    expect(popupGrantCount(snapshot)).toBe(1);
+    expect(availableGrantCount(snapshot)).toBe(1);
+    expect(snapshot.grants.every((grant) => grant.countOnly)).toBe(true);
+    expect(detectResetEvents(previous, snapshot, ctx.now())).toEqual([
+      { type: 'GRANT_USED', provider: 'chatgpt', scope: 'unknown', at: ctx.now().toISOString() },
+    ]);
+  });
+
+  it('refreshes credit details even when the available count is unchanged', async () => {
+    const routes = [
+      { match: SESSION, reply: { json: signedIn() } },
+      { match: USAGE, reply: { json: { rate_limit: {}, rate_limit_reset_credits: { available_count: 1 } } } },
+      { match: CREDITS, reply: { json: { credits: [{ id: 'old-credit', status: 'available', reset_type: 'weekly' }] } } },
+    ];
+    const previous = await chatgptAdapter.fetchSnapshot(makeCtx({ provider: 'chatgpt', routes }));
+    const ctx = makeCtx({
+      provider: 'chatgpt', previous,
+      routes: [routes[0]!, routes[1]!, {
+        match: CREDITS, reply: { json: { credits: [
+          { id: 'old-credit', status: 'consumed', reset_type: 'weekly' },
+          { id: 'new-credit', status: 'available', reset_type: 'weekly' },
+        ] } },
+      }],
+    });
+
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    expect(ctx.calls.map((call) => call.url)).toEqual([SESSION, USAGE, CREDITS]);
+    expect(snapshot.grants).toContainEqual(expect.objectContaining({
+      idHash: previous.grants[0]?.idHash, status: 'used', remaining: 0,
+    }));
+    expect(popupGrantCount(snapshot)).toBe(1);
+    expect(snapshot.grants.find((grant) => grant.status === 'available')?.idHash).not.toBe(previous.grants[0]?.idHash);
+  });
+
+  it('falls back to the current count when credit details cannot be fetched', async () => {
+    const ctx = makeCtx({
+      provider: 'chatgpt',
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: USAGE, reply: { json: { rate_limit: {}, rate_limit_reset_credits: { available_count: 2 } } } },
+        { match: CREDITS, reply: { status: 403 } },
+      ],
+    });
+
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    expect(snapshot).toMatchObject({ status: 'ok', grantSupport: 'supported' });
+    expect(popupGrantCount(snapshot)).toBe(2);
+    expect(snapshot.grants.every((grant) => grant.scope === 'unknown')).toBe(true);
+  });
+
+  it('preserves the last successful grant data when the usage request fails', async () => {
+    const previous = baseSnapshot('chatgpt', new Date('2026-10-01T11:00:00Z'));
+    previous.grantSupport = 'supported';
+    previous.grants = [{ provider: 'chatgpt', idHash: 'previous-grant', scope: 'weekly_7d', remaining: 1, status: 'available' }];
+    const ctx = makeCtx({
+      provider: 'chatgpt', previous,
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: USAGE, reply: { status: 500 } },
+      ],
+    });
+
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    expect(snapshot).toMatchObject({ status: 'error', fetchedAt: previous.fetchedAt, grants: previous.grants });
   });
 
   it.each([

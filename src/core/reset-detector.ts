@@ -37,7 +37,19 @@ export function detectResetEvents(
   const events: ResetEvent[] = [];
   const previousByHash = new Map(prev?.grants.map((grant) => [grant.idHash, grant]));
 
-  if (!firstRun) {
+  const countOnly = [...(prev?.grants ?? []), ...next.grants].some((grant) => grant.countOnly);
+  if (!firstRun && countOnly && prev.grantSupport === 'supported' && next.grantSupport === 'supported') {
+    // A fallback inventory has no real credit IDs. Compare totals so switching between
+    // verified details and count-only data does not look like every credit was replaced.
+    const change = availableGrantCount(next) - availableGrantCount(prev);
+    const expiredCount = prev.grants
+      .filter((grant) => grant.status === 'available' && validTime(grant.expiresAt) !== null && Date.parse(grant.expiresAt!) <= now.getTime())
+      .reduce((total, grant) => total + grant.remaining, 0);
+    if (change > 0) events.push(event('GRANT_ADDED', 'unknown'));
+    if (change < -expiredCount) events.push(event('GRANT_USED', 'unknown'));
+  }
+
+  if (!firstRun && !countOnly) {
     for (const grant of next.grants) {
       const previous = previousByHash.get(grant.idHash);
       if (grant.status === 'available' && (previous === undefined || grant.remaining > previous.remaining)) {
@@ -56,7 +68,15 @@ export function detectResetEvents(
       ) {
         events.push(event('GRANT_USED', previous.scope));
       }
-      if (expired !== null && expired <= now.getTime()) events.push(event('GRANT_EXPIRED', previous.scope));
+    }
+  }
+
+  if (!firstRun) {
+    for (const previous of prev.grants) {
+      const expired = validTime(previous.expiresAt);
+      if (previous.status === 'available' && expired !== null && expired <= now.getTime()) {
+        events.push(event('GRANT_EXPIRED', previous.scope));
+      }
     }
   }
 
