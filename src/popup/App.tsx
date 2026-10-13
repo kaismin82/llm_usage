@@ -34,8 +34,8 @@ import { CostTable } from './components/CostTable';
 import { CustomProviderCards } from './components/CustomProviderCards';
 import { useCustomData } from '../custom/use-data';
 import { requestCustomRefresh } from '../custom/store';
+import { needsRefreshOnOpen } from '../core/refresh-policy';
 
-const STALE_THRESHOLD_MS = 30_000;
 const SUBSCRIPTION_IDS: ProviderId[] = ['claude', 'chatgpt', 'zai'];
 const COST_IDS: ProviderId[] = ['openrouter', 'litellm', 'poe'];
 
@@ -85,7 +85,7 @@ export function App() {
     for (const id of PROVIDER_IDS) {
       if (!settings.providers[id].enabled) continue;
       const snap = snapshots[id];
-      if (!snap || openedAt - Date.parse(snap.attemptedAt) > STALE_THRESHOLD_MS) {
+      if (needsRefreshOnOpen(snap, settings.providers[id].intervalMin, openedAt)) {
         void requestRefresh(id);
       }
     }

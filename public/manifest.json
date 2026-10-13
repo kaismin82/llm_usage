@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Shows your own LLM subscription limits and API spend (Claude, ChatGPT, Z.ai, Poe, LiteLLM, OpenRouter) in one popup.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "alarms", "scripting"],
+  "permissions": ["storage", "alarms", "scripting", "idle"],
   "optional_permissions": ["notifications"],
   "optional_host_permissions": [
     "https://claude.ai/*",

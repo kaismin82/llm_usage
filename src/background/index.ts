@@ -14,6 +14,8 @@ import { PROVIDER_IDS } from '../providers/types';
 import type { ProviderId } from '../providers/types';
 import { isCustomMessage } from '../custom/config';
 import { registerCustomProviders } from '../custom/runtime';
+import { withinCooldown } from '../core/refresh-policy';
+import { configureIdleDetection, isUserIdle, onUserActive } from '../core/idle';
 
 const SCHEDULE_KEY = 'schedule';
 const TICK_ALARM = 'tick';
@@ -80,6 +82,10 @@ async function ensureTickAlarm(): Promise<void> {
   await runDue();
 }
 
+async function runUnlessIdle(run: () => Promise<void>): Promise<void> {
+  if (!(await isUserIdle())) await run();
+}
+
 function providerForTab(url: string | undefined): ProviderId | null {
   if (!url) return null;
   let host: string;
@@ -103,12 +109,12 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === TICK_ALARM) {
-    void runDue();
+    void runUnlessIdle(runDue);
     return;
   }
   if (alarm.name.startsWith('reset:')) {
     const provider = parseResetAlarm(alarm.name);
-    if (provider !== null) void runProvider(provider, { force: true });
+    if (provider !== null) void runUnlessIdle(() => runProvider(provider, { force: true }));
   }
 });
 
@@ -116,15 +122,15 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
   if (isCustomMessage(message)) return;
   if (message.type === 'refresh') {
     void (async () => {
-      if (message.provider !== undefined) {
-        await runProvider(message.provider, { force: true });
-      } else {
-        const settings = await getSettings();
-        await runAll(
-          PROVIDER_IDS.filter((id) => settings.providers[id].enabled),
-          { force: true },
-        );
-      }
+      const [settings, snapshots] = await Promise.all([getSettings(), getSnapshots()]);
+      const requested = message.provider !== undefined
+        ? [message.provider]
+        : PROVIDER_IDS.filter((id) => settings.providers[id].enabled);
+      const nowMs = Date.now();
+      await runAll(
+        requested.filter((id) => !withinCooldown(snapshots[id], nowMs)),
+        { force: true },
+      );
       sendResponse({ ok: true });
     })();
     return true;
@@ -172,6 +178,11 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
 });
 
 chrome.permissions.onAdded.addListener(() => {
+  void runDue();
+});
+
+configureIdleDetection();
+onUserActive(() => {
   void runDue();
 });
 

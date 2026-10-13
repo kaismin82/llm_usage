@@ -20,6 +20,7 @@ import {
 import { originsFor } from '../core/permissions';
 import {
   clampInterval,
+  minIntervalFor,
   COMMON_TIMEZONES,
   formatLastSuccess,
   isValidTimezone,
@@ -525,13 +526,14 @@ export function App() {
                       <input
                         type="number"
                         class="interval-input"
-                        min={1}
+                        min={minIntervalFor(id)}
                         max={60}
                         value={ps.intervalMin}
-                        onInput={(e) =>
+                        onChange={(e) =>
                           updateProvider(id, {
                             intervalMin: clampInterval(
                               Number((e.target as HTMLInputElement).value),
+                              minIntervalFor(id),
                             ),
                           })
                         }

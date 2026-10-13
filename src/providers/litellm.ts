@@ -15,6 +15,8 @@ interface DailyResult {
   spend: number;
 }
 
+const DETAIL_TTL_MS = 30 * 60_000;
+
 function dateString(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
@@ -74,7 +76,7 @@ interface BudgetCandidate {
   resetsAt: string | null;
 }
 
-async function userBudget(
+async function fetchUserBudget(
   ctx: ProviderContext,
   baseUrl: string,
   init: { headers: Record<string, string>; credentials: 'omit' },
@@ -86,6 +88,39 @@ async function userBudget(
   const spend = num(info.spend);
   if (max === undefined || spend === undefined) return undefined;
   return { remaining: max - spend, limit: max, resetsAt: typeof info.budget_reset_at === 'string' ? info.budget_reset_at : null };
+}
+
+async function userBudget(
+  ctx: ProviderContext,
+  baseUrl: string,
+  init: { headers: Record<string, string>; credentials: 'omit' },
+  userId: string,
+): Promise<BudgetCandidate | undefined> {
+  const key = `litellm:user:${await hashId('litellm', `${baseUrl}:${userId}`)}`;
+  const cached = await ctx.cache.get(key);
+  if (cached !== undefined) {
+    try {
+      const value: unknown = JSON.parse(cached);
+      if (value === null) return undefined;
+      if (isRecord(value) && typeof value.remaining === 'number' && typeof value.limit === 'number') {
+        return { remaining: value.remaining, limit: value.limit, resetsAt: typeof value.resetsAt === 'string' ? value.resetsAt : null };
+      }
+    } catch {
+      return fetchAndCacheUserBudget(ctx, baseUrl, init, key);
+    }
+  }
+  return fetchAndCacheUserBudget(ctx, baseUrl, init, key);
+}
+
+async function fetchAndCacheUserBudget(
+  ctx: ProviderContext,
+  baseUrl: string,
+  init: { headers: Record<string, string>; credentials: 'omit' },
+  key: string,
+): Promise<BudgetCandidate | undefined> {
+  const fresh = await fetchUserBudget(ctx, baseUrl, init);
+  await ctx.cache.set(key, JSON.stringify(fresh ?? null), DETAIL_TTL_MS);
+  return fresh;
 }
 
 async function cachedDaily(ctx: ProviderContext, key: string): Promise<DailyResult[] | null> {
@@ -200,7 +235,7 @@ export const litellmAdapter: ProviderAdapter = {
         const candidates: BudgetCandidate[] = [];
         if (maxBudget !== undefined && spend !== undefined) candidates.push({ remaining: maxBudget - spend, limit: maxBudget, resetsAt: resetAt });
         if (userId) {
-          const fromUser = await userBudget(ctx, baseUrl, init);
+          const fromUser = await userBudget(ctx, baseUrl, init, userId);
           if (fromUser) candidates.push(fromUser);
         }
         const tightest = candidates.sort((a, b) => a.remaining - b.remaining)[0];
@@ -225,7 +260,7 @@ export const litellmAdapter: ProviderAdapter = {
       if (daily.snapshot) return daily.snapshot;
       if (daily.partial) return partialSnapshot(snapshot);
       const results = daily.results ?? [];
-      if (cached === null) await ctx.cache.set(cacheKey, JSON.stringify(results), 60_000);
+      if (cached === null) await ctx.cache.set(cacheKey, JSON.stringify(results), DETAIL_TTL_MS);
       snapshot.windows.push(...windowsForDaily(results, now));
       return snapshot;
     } catch (error) {

@@ -1,6 +1,7 @@
 import { isCustomMessage } from './config';
 import { createCustomRunner } from './runner';
 import { createCustomStore } from './store';
+import { isUserIdle, onUserActive } from '../core/idle';
 
 export function registerCustomProviders(): void {
   const runner = createCustomRunner({
@@ -17,9 +18,10 @@ export function registerCustomProviders(): void {
     return true;
   });
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'tick') void runner.run();
+    if (alarm.name === 'tick') void isUserIdle().then((idle) => (idle ? undefined : runner.run()));
   });
   chrome.runtime.onInstalled.addListener(() => { void runner.run(); });
   chrome.runtime.onStartup.addListener(() => { void runner.run(); });
   chrome.permissions.onAdded.addListener(() => { void runner.run(undefined, true); });
+  onUserActive(() => { void runner.run(); });
 }

@@ -6,9 +6,15 @@ const DEFAULT_INTERVALS: Record<ProviderId, number> = {
   chatgpt: 3,
   zai: 3,
   poe: 10,
-  litellm: 10,
+  litellm: 15,
   openrouter: 10,
 };
+
+const MIN_INTERVALS: Partial<Record<ProviderId, number>> = { litellm: 10 };
+
+export function minIntervalFor(id: ProviderId): number {
+  return MIN_INTERVALS[id] ?? 1;
+}
 
 function defaultProvider(id: ProviderId): ProviderSettings {
   return { enabled: false, intervalMin: DEFAULT_INTERVALS[id] };
@@ -39,7 +45,8 @@ export function mergeSettings(stored: Partial<AppSettings> | undefined): AppSett
   if (!stored) return base;
   const providers = { ...base.providers };
   for (const id of PROVIDER_IDS) {
-    providers[id] = { ...base.providers[id], ...(stored.providers?.[id] ?? {}) };
+    const merged = { ...base.providers[id], ...(stored.providers?.[id] ?? {}) };
+    providers[id] = { ...merged, intervalMin: Math.max(merged.intervalMin, minIntervalFor(id)) };
   }
   return { ...base, ...stored, providers };
 }

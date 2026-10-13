@@ -66,7 +66,7 @@ describe('popup refresh-on-open', () => {
   });
 
   it('requests one refresh for a provider whose last attempt is old, and does not loop on store changes', async () => {
-    const env = installChrome(snapshot(120_000));
+    const env = installChrome(snapshot(4 * 60_000));
     render(<App />, root);
     await flush();
     expect(env.sendMessage).toHaveBeenCalledTimes(1);
@@ -80,8 +80,8 @@ describe('popup refresh-on-open', () => {
     expect(env.sendMessage).toHaveBeenCalledTimes(1);
   });
 
-  it('does not refresh when the last attempt was recent even though the last success is old', async () => {
-    const env = installChrome(snapshot(5_000));
+  it('does not refresh within the provider interval even though the last success is old', async () => {
+    const env = installChrome(snapshot(2 * 60_000));
     render(<App />, root);
     await flush();
     expect(env.sendMessage).not.toHaveBeenCalled();

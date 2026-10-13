@@ -24,6 +24,7 @@ function installWorker() {
       onInstalled: event(), onStartup: event(),
     },
     alarms: { onAlarm: event() },
+    idle: { queryState: vi.fn(async () => 'active'), setDetectionInterval: vi.fn(), onStateChanged: event() },
     tabs: { onUpdated: event() },
     permissions: { contains: async () => true, onAdded: event() },
     action: { setBadgeText: vi.fn(async () => undefined) },

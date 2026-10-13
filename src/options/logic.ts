@@ -1,8 +1,10 @@
 import type { ProviderId, ProviderSettings, SnapshotStatus } from '../providers/types';
 
-export function clampInterval(n: number): number {
+export { minIntervalFor } from '../core/settings';
+
+export function clampInterval(n: number, min = 1): number {
   const v = Math.round(n);
-  if (!Number.isFinite(v) || v < 1) return 1;
+  if (!Number.isFinite(v) || v < min) return min;
   if (v > 60) return 60;
   return v;
 }
