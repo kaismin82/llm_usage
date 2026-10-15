@@ -15,6 +15,7 @@ const FIXED_HOST_PATHS: Record<string, RegExp[]> = {
   'chatgpt.com': [
     /^\/api\/auth\/session$/,
     /^\/backend-api\/wham\/usage$/,
+    /^\/backend-api\/wham\/usage\/credit-usage-events$/,
     /^\/backend-api\/wham\/rate-limit-reset-credits$/,
   ],
   'api.z.ai': ZAI_PATHS,

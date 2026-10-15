@@ -6,6 +6,7 @@ const allowed = [
   'https://claude.ai/api/organizations/0f9a7c1e-1111-2222-3333-444455556666/usage?cedar_ember=1',
   'https://chatgpt.com/api/auth/session',
   'https://chatgpt.com/backend-api/wham/usage',
+  'https://chatgpt.com/backend-api/wham/usage/credit-usage-events',
   'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits',
   'https://api.z.ai/api/monitor/usage/quota/limit',
   'https://open.bigmodel.cn/api/monitor/usage/quota/limit',
@@ -21,6 +22,8 @@ const allowed = [
 ];
 
 const blocked = [
+  'https://chatgpt.com/backend-api/wham/usage/credit-usage-events/consume',
+  'https://chatgpt.com/backend-api/wham/credits/purchase',
   'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume',
   'https://api.anthropic.com/api/organizations/abc/reset_rate_limits',
   'https://api.anthropic.com/api/oauth/usage',

@@ -116,18 +116,23 @@ function usageWindows(body: Record<string, unknown>): UsageWindow[] {
         flatWindow(body.seven_day_sonnet, 'weekly_model', '7일 · Sonnet', 604_800),
       ].filter((window): window is UsageWindow => window !== undefined);
   const extra = isRecord(body.extra_usage) ? body.extra_usage : undefined;
-  if (extra?.is_enabled === true) {
+  if (extra?.is_enabled === true && (extra.currency === undefined || extra.currency === 'USD')) {
     const usedCredits = num(extra.used_credits);
     const monthlyLimit = num(extra.monthly_limit);
     const utilization = num(extra.utilization);
-    if (usedCredits !== undefined && monthlyLimit !== undefined && monthlyLimit > 0) {
+    const decimalPlaces = num(extra.decimal_places) ?? 2;
+    if (usedCredits !== undefined && usedCredits >= 0 && Number.isInteger(decimalPlaces) && decimalPlaces >= 0 && decimalPlaces <= 6) {
+      const scale = 10 ** decimalPlaces;
+      const limit = monthlyLimit !== undefined && monthlyLimit >= 0 ? monthlyLimit / scale : undefined;
       windows.push({
         kind: 'month',
         label: 'Extra usage',
         unit: 'usd',
-        usedAmount: usedCredits / 100,
-        limitAmount: monthlyLimit / 100,
-        usedPercent: utilization ?? (usedCredits / monthlyLimit) * 100,
+        usedAmount: usedCredits / scale,
+        limitAmount: limit,
+        usedPercent: utilization !== undefined && utilization >= 0
+          ? utilization
+          : limit !== undefined && limit > 0 ? (usedCredits / scale / limit) * 100 : undefined,
       });
     }
   }
@@ -244,6 +249,10 @@ export const claudeAdapter: ProviderAdapter = {
       snapshot.plan = planFor(organization.record);
       snapshot.account = typeof organization.record?.name === 'string' ? organization.record.name : undefined;
       snapshot.windows = usageWindows(response.json);
+      const extra = isRecord(response.json.extra_usage) ? response.json.extra_usage : undefined;
+      if (extra && typeof extra.is_enabled === 'boolean' && (extra.currency === undefined || extra.currency === 'USD')) {
+        snapshot.extraCredits = { unit: 'usd', isEnabled: extra.is_enabled };
+      }
       if (snapshot.windows.length === 0) return errorSnapshot('claude', now, 'schema_changed', 'Usage schema changed', ctx.previous);
       const grantData = grantQuerySupported
         ? await grantsFor(response.json, now)

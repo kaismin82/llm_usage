@@ -2,12 +2,13 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import type { AppSettings, UsageWindow } from '../../providers/types';
 import type { CustomProviderConfig, CustomSnapshot } from '../../custom/types';
 import { requestCustomRefresh } from '../../custom/store';
-import { formatAgo, formatRelative, formatPoints, formatUsd, percentTone, STATUS_LABELS } from '../format';
+import { formatAgo, formatRelative, formatPoints, formatUsd, formatCredits, percentTone, STATUS_LABELS } from '../format';
 import '../custom.css';
 
 function amount(value: number, unit: UsageWindow['unit']): string {
   switch (unit) {
     case 'usd': return formatUsd(value);
+    case 'credits': return `${formatCredits(value)} cr`;
     case 'points': return `${formatPoints(value)} pt`;
     case 'percent': return `${value.toLocaleString('ko-KR', { maximumFractionDigits: 1 })}%`;
     case 'calls': return `${value.toLocaleString('ko-KR')} calls`;

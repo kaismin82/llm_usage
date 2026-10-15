@@ -67,6 +67,10 @@ export function formatUsd(n: number): string {
   return `${sign}$${abs.toFixed(2)}`;
 }
 
+export function formatCredits(n: number): string {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 8 }).format(n);
+}
+
 export function formatAgo(iso: string, now: Date): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return '';

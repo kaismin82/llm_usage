@@ -107,6 +107,60 @@ describe('claudeAdapter', () => {
     expect(snapshot.grantSupport).toBe('not_eligible');
   });
 
+  it.each([
+    { used_credits: 2294, monthly_limit: 11500, decimal_places: 2, used: 22.94, limit: 115 },
+    { used_credits: 1234, monthly_limit: null, decimal_places: 2, used: 12.34, limit: undefined },
+    { used_credits: 0, monthly_limit: 0, decimal_places: 2, used: 0, limit: 0 },
+    { used_credits: 1234, monthly_limit: 5000, decimal_places: 3, used: 1.234, limit: 5 },
+  ])('retains monthly extra usage with provider precision and nullable caps: %j', async (input) => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'claude',
+      providerSettings: { orgId: '00000000-0000-0000-0000-000000000003' },
+      routes: [{
+        match: '/usage',
+        reply: { json: {
+          five_hour: { utilization: 5, resets_at: null },
+          extra_usage: { is_enabled: true, currency: 'USD', ...input },
+        } },
+      }],
+    });
+
+    // When
+    const snapshot = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.extraCredits).toEqual({ unit: 'usd', isEnabled: true });
+    expect(snapshot.windows.find((w) => w.kind === 'month')).toMatchObject({
+      unit: 'usd', usedAmount: input.used, limitAmount: input.limit,
+    });
+    expect(snapshot.windows.find((w) => w.kind === 'month')?.usedPercent).toBe(
+      input.limit !== undefined && input.limit > 0 ? input.used / input.limit * 100 : undefined,
+    );
+  });
+
+  it('distinguishes disabled extra usage from missing or malformed amounts', async () => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'claude',
+      providerSettings: { orgId: '00000000-0000-0000-0000-000000000003' },
+      routes: [{
+        match: '/usage',
+        reply: { json: {
+          five_hour: { utilization: 5, resets_at: null },
+          extra_usage: { is_enabled: false, used_credits: null, monthly_limit: null },
+        } },
+      }],
+    });
+
+    // When
+    const snapshot = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.extraCredits).toEqual({ unit: 'usd', isEnabled: false });
+    expect(snapshot.windows.some((w) => w.kind === 'month')).toBe(false);
+  });
+
   it('returns auth_required for an unauthorized usage response', async () => {
     const ctx = makeCtx({
       provider: 'claude',

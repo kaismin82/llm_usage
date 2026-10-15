@@ -35,6 +35,17 @@ Custom cards appear below built-in summaries; arbitrary provider counts scroll r
 - Status: reuse `.status-chip` and `.error-text`; async results use an ARIA live region.
 - Popup card: reuse `.card`, `.card-h`, `.name`, `.chip`, `.bar`, existing tone ramps.
   Custom rows use flexible wrapping for arbitrary labels and amounts.
+- Subscription extra-credit summary: Claude and ChatGPT reuse a compact 12px text row
+  below their usage windows, with a wrapping label and right-aligned numeric values.
+  Show monthly usage separately from remaining purchased credits. Claude's denominator
+  is explicitly a monthly spending cap, not a prepaid balance. ChatGPT credits are
+  not USD and have no invented monthly cap. States include available, disabled,
+  unknown usage, unknown balance, unlimited balance and stale data.
+  The current observation month stays visible on cached data; ChatGPT months use UTC.
+  Values remain selectable and include full precision in the row's native tooltip.
+  Cards containing this summary use 5px/4px block padding, 18px usage/model rows
+  and a 17px minimum summary row to keep the six-provider error scenario under
+  the existing 600px popup limit. These compact adjustments are scoped to those cards.
 - All new controls retain native keyboard operation and explicit focus-visible rings.
 - New custom-only selectors stay scoped; no existing selector is restyled.
 

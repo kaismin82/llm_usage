@@ -57,6 +57,7 @@ function healthy(now: Date): Record<ProviderId, ProviderSnapshot> {
     ...base('claude', now),
     plan: 'Max 20x',
     grantSupport: 'supported',
+    extraCredits: { unit: 'usd', isEnabled: true },
     windows: [
       percentWindow(now, 'session_5h', '5시간', 68, 2 * HOUR + 13 * MIN, 18000),
       percentWindow(now, 'weekly_7d', '7일', 31, 4 * DAY + 3 * HOUR, 604800),
@@ -81,9 +82,11 @@ function healthy(now: Date): Record<ProviderId, ProviderSnapshot> {
     ...base('chatgpt', now),
     plan: 'plus',
     grantSupport: 'supported',
+    extraCredits: { unit: 'credits', balanceAmount: 1759.5, unlimited: false },
     windows: [
       percentWindow(now, 'weekly_7d', '7일', 52, 3 * DAY + 9 * HOUR, 604800),
       percentWindow(now, 'session_5h', '5시간', 10, 3 * HOUR + 40 * MIN, 18000),
+      { kind: 'month', label: 'Extra credits', unit: 'credits', usedAmount: 240.5, periodTz: 'UTC' },
     ],
     grants: [
       {

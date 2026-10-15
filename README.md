@@ -4,8 +4,8 @@
 
 | Provider | 표시 내용 | 인증 |
 |---|---|---|
-| Claude (구독) | 5시간 / 7일 / 모델별 주간 사용률과 reset 시각, reset 권 | claude.ai 로그인 세션 |
-| ChatGPT (구독) | 7일(+5시간) Codex 사용 한도와 reset 시각, reset 권 | chatgpt.com 로그인 세션 |
+| Claude (구독) | 5시간 / 7일 / 모델별 주간 사용률, 월간 추가 사용액 / 월 지출 한도, reset 권 | claude.ai 로그인 세션 |
+| ChatGPT (구독) | 7일(+5시간) 사용 한도, 월간 추가 크레딧 사용량과 현재 잔액, reset 권 | chatgpt.com 로그인 세션 |
 | Z.ai | 5시간 / 7일 / MCP 월간 사용률과 reset 시각, reset 권 | API 키 |
 | Poe | 일 / 주 / 월 사용 포인트, 남은 포인트 | API 키 |
 | LiteLLM | 일 / 주 / 월 비용(UTC), 남은 예산 | 가상키 또는 관리키 |
@@ -14,6 +14,28 @@
 - 팝업은 Chrome 팝업 높이 제한(600px) 안에 모든 항목이 한 번에 보이도록 만들었습니다.
 - 읽기 전용입니다. GET 요청만 보내며 reset 권을 소모하는 API는 코드가 호출하지 못하게 막혀 있습니다(`src/core/allowlist.ts`, `tests/allowlist.test.ts`).
 - 외부 서버로 데이터를 보내지 않습니다. 설정과 마지막 조회 결과는 `chrome.storage`에만 저장합니다.
+
+## 구독 추가 크레딧
+
+Claude와 ChatGPT 카드 아래의 **Extra** 행에서 관측 월과 추가 사용량을 확인합니다.
+기존 브라우저 로그인 세션으로 읽기 전용 조회하며 별도 API 키는 필요하지 않습니다.
+
+- **Claude:** `extra_usage`가 제공하는 월간 사용액과 월 지출 한도를 USD로 표시합니다.
+  월 지출 한도는 충전된 선불 크레딧 잔액과 다릅니다. 비활성 상태, 0 한도,
+  한도 미제공을 구분하며, 제공되지 않은 잔액을 추정하지 않습니다.
+- **ChatGPT 개인 구독:** 현재 월 1일부터 조회일까지의 UTC 날짜에 해당하는
+  `credit-usage-events`를 제품 구분 없이 합산하고, `usage.credits.balance`의 현재 잔액을
+  별도로 표시합니다. 단위 `cr`은 크레딧이며 USD나 리셋권이 아닙니다.
+  사용량에 잔액을 더해 가상의 월 한도를 만들지 않습니다. 음수 조정과 음수 잔액은 그대로 표시합니다.
+- ChatGPT 이력 API는 날짜 필터·페이지네이션·보존 범위를 제공하지 않으므로
+  월간 값은 **서버가 반환한 사용 이력 기준**입니다. Business/Enterprise/Edu 계정에는
+  개인 크레딧 이력 API를 사용하지 않으며 월간 추가 사용량이 미제공으로 표시될 수 있습니다.
+- 조회 실패나 미지원 응답은 0으로 표시하지 않습니다. 월간 이력만 실패하면 현재 잔액은
+  유지하고 사용량은 조회 불가로 표시합니다. 전체 조회 실패 시에는 마지막 성공 데이터의
+  관측 월과 오류 상태를 함께 표시합니다.
+
+ChatGPT 응답 계약은 [공식 Codex 클라이언트](https://github.com/openai/codex/blob/160b2b1ef62114eeb41e41e5e3be0000d944b713/codex-rs/backend-client/src/client/analytics.rs)와
+[크레딧 이벤트 모델](https://github.com/openai/codex/blob/160b2b1ef62114eeb41e41e5e3be0000d944b713/codex-rs/codex-backend-openapi-models/src/models/analytics.rs)을 기준으로 합니다.
 
 ## 시작하기
 
@@ -71,7 +93,9 @@ tests/           단위 테스트
 ## 알려진 한계
 
 - Claude, ChatGPT, Z.ai의 사용량 API는 공식 문서가 없는 내부 API입니다. 약관상 자동화 접근으로 해석될 수 있고, 응답 구조가 바뀌면 `API 변경 감지` 상태로 표시됩니다.
-- Z.ai, Poe, OpenRouter, LiteLLM은 실제 서버로 확인했습니다. Claude와 ChatGPT의 세션 방식은 실계정 응답으로 아직 확인하지 못했습니다.
+- Z.ai, Poe, OpenRouter, LiteLLM은 실제 서버로 확인했습니다. Claude 추가 사용량은 실계정 응답으로
+  확인했습니다. ChatGPT 크레딧 계약은 공식 Codex 소스와 실계정 사용량 화면으로 확인했으며,
+  새 어댑터의 인증된 실서버 요청은 아직 별도로 검증하지 못했습니다.
 - ChatGPT 수치는 구독에 포함된 Codex 사용 한도이며 일반 채팅 메시지 한도는 제공되지 않습니다.
 - API 키는 `chrome.storage.local`에 암호화 없이 저장됩니다. 패스프레이즈 암호화 코드(`src/core/secrets.ts`)는 있으나 옵션 화면에는 연결하지 않았습니다.
 - Poe 사용 이력은 30일만 보존되므로 월간 합계는 설치 이후 누적분 기준입니다.

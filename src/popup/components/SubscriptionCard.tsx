@@ -8,6 +8,8 @@ import {
   formatRelative,
   formatShortAbsolute,
   formatAgo,
+  formatUsd,
+  formatCredits,
   percentTone,
   availableGrantCount,
   STATUS_LABELS,
@@ -81,9 +83,21 @@ export function SubscriptionCard({ snapshot, providerId, settings, now }: Props)
   const tool = snapshot.windows.find((w) => w.kind === 'monthly_tool');
   const toolPct = tool?.usedPercent ?? 0;
   const toolTone = percentTone(toolPct, warnPercent, criticalPercent);
+  const showExtra = providerId === 'claude' || providerId === 'chatgpt';
+  const extra = snapshot.extraCredits;
+  const monthly = snapshot.windows.find((w) => w.kind === 'month' && (w.unit === 'usd' || w.unit === 'credits'));
+  const extraUnit = extra?.unit ?? (providerId === 'claude' ? 'usd' : 'credits');
+  const extraAmount = (amount: number) => extraUnit === 'usd' ? formatUsd(amount) : `${formatCredits(amount)} cr`;
+  const observedMonth = new Intl.DateTimeFormat('ko-KR', {
+    year: 'numeric', month: 'numeric',
+    timeZone: providerId === 'chatgpt' ? 'UTC' : settings.timezone,
+  }).format(new Date(snapshot.fetchedAt));
+  const extraTitle = extraUnit === 'usd'
+    ? `${observedMonth} 추가 사용액 / 월 지출 한도. 월 지출 한도는 선불 크레딧 잔액이 아닙니다.`
+    : `${observedMonth} UTC 서버 제공 이력의 월간 사용량 · 현재 사용 가능 잔액. 크레딧은 USD가 아닙니다.`;
 
   return (
-    <div class={`card${dim ? ' is-dim' : ''}`}>
+    <div class={`card${showExtra ? ' has-extra-credits' : ''}${dim ? ' is-dim' : ''}`}>
       <div class="card-h">
         <Avatar id={providerId} />
         <span class="name">{label}</span>
@@ -125,6 +139,31 @@ export function SubscriptionCard({ snapshot, providerId, settings, now }: Props)
               </b>
             </span>
           ))}
+        </div>
+      )}
+
+      {showExtra && (
+        <div class="extra-credit-row" title={extraTitle}>
+          <span class="extra-credit-label">{observedMonth} Extra</span>
+          <span class="extra-credit-values">
+            {extra?.isEnabled === false && <span>비활성</span>}
+            {monthly?.usedAmount !== undefined ? (
+              <span>사용 <b class="extra-used" title={String(monthly.usedAmount)}>{extraAmount(monthly.usedAmount)}</b></span>
+            ) : extra?.isEnabled !== false && <span>사용량 조회 불가</span>}
+            {monthly?.limitAmount !== undefined && (
+              <span>/ 월 한도 <b class="extra-limit" title={String(monthly.limitAmount)}>{extraAmount(monthly.limitAmount)}</b></span>
+            )}
+            {extraUnit === 'usd' && monthly && monthly.limitAmount === undefined && <span>월 한도 미제공</span>}
+            {extraUnit === 'credits' && (
+              <span>
+                · 잔액 {extra?.unlimited ? (
+                  <b class="extra-balance">무제한</b>
+                ) : extra?.balanceAmount !== undefined ? (
+                  <b class="extra-balance" title={String(extra.balanceAmount)}>{extraAmount(extra.balanceAmount)}</b>
+                ) : '미제공'}
+              </span>
+            )}
+          </span>
         </div>
       )}
     </div>

@@ -8,6 +8,7 @@ import { availableGrantCount, detectResetEvents } from '../src/core/reset-detect
 const SESSION = 'https://chatgpt.com/api/auth/session';
 const USAGE = 'https://chatgpt.com/backend-api/wham/usage';
 const CREDITS = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
+const CREDIT_USAGE = 'https://chatgpt.com/backend-api/wham/usage/credit-usage-events';
 
 function token(payload: Record<string, unknown> = {}): string {
   const encoded = btoa(JSON.stringify(payload)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -121,6 +122,136 @@ describe('chatgptAdapter', () => {
     });
     expect(ctx.calls.map((call) => call.url)).toEqual([SESSION, USAGE]);
     expect(previous.grants[0]?.status).toBe('available');
+  });
+
+  it('sums this UTC month across surfaces without treating credits as dollars or inventing a cap', async () => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'chatgpt',
+      now: new Date('2026-10-15T23:30:00Z'),
+      settings: { timezone: 'Asia/Seoul' },
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: CREDIT_USAGE, reply: { json: { data: [
+          { date: '2026-09-30', product_surface: 'cli', credit_amount: 999 },
+          { date: '2026-10-01', product_surface: 'cli', credit_amount: 12.5 },
+          { date: '2026-10-15T12:00:00Z', product_surface: 'work', credit_amount: 7.25 },
+          { date: '2026-10-15', product_surface: 'cli', credit_amount: -0.004 },
+          { date: '2026-10-16', product_surface: 'cli', credit_amount: 100 },
+          { date: '2026-11-01', product_surface: 'cli', credit_amount: 100 },
+        ] } } },
+        { match: USAGE, reply: { json: {
+          plan_type: 'pro', rate_limit: {},
+          credits: { has_credits: true, unlimited: false, balance: '1234.567' },
+          rate_limit_reset_credits: { available_count: 0 },
+        } } },
+      ],
+    });
+
+    // When
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.extraCredits).toEqual({ unit: 'credits', balanceAmount: 1234.567, unlimited: false });
+    const monthly = snapshot.windows.find((w) => w.kind === 'month');
+    expect(monthly).toMatchObject({ unit: 'credits', periodTz: 'UTC', resetsAt: '2026-11-01T00:00:00.000Z' });
+    expect(monthly?.usedAmount).toBeCloseTo(19.746, 6);
+    expect(monthly?.limitAmount).toBeUndefined();
+    expect(monthly?.usedPercent).toBeUndefined();
+    expect(snapshot.grants).toEqual([]);
+    expect(ctx.calls.find((call) => call.url === CREDIT_USAGE)?.init).toEqual(ctx.calls.find((call) => call.url === USAGE)?.init);
+  });
+
+  it.each([
+    { now: '2027-01-01T00:00:00Z', date: '2026-12-31', reset: '2027-02-01T00:00:00.000Z' },
+    { now: '2026-12-01T00:00:00Z', date: '2026-11-30', reset: '2027-01-01T00:00:00.000Z' },
+  ])('resets the reported monthly sum at UTC month boundaries: %j', async ({ now, date, reset }) => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'chatgpt', now: new Date(now),
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: CREDIT_USAGE, reply: { json: { data: [{ date, product_surface: 'cli', credit_amount: 88 }] } } },
+        { match: USAGE, reply: { json: { rate_limit: {}, credits: { has_credits: false, unlimited: false, balance: '0' } } } },
+      ],
+    });
+
+    // When
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.windows.find((w) => w.kind === 'month')).toMatchObject({ usedAmount: 0, resetsAt: reset });
+    expect(snapshot.extraCredits?.balanceAmount).toBe(0);
+  });
+
+  it.each([
+    { status: 403 },
+    { status: 429 },
+    { json: { unexpected: [] } },
+    { json: { data: [{ date: '2026-10-01', credit_amount: 'bad' }] } },
+    { json: { data: [{ date: '2026-02-30', credit_amount: 10 }] } },
+  ])('keeps the live balance and limits without a fabricated zero when history is unavailable: %j', async (reply) => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'chatgpt',
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: CREDIT_USAGE, reply },
+        { match: USAGE, reply: { json: {
+          rate_limit: { primary_window: { limit_window_seconds: 18_000, used_percent: 23 } },
+          credits: { has_credits: true, unlimited: false, balance: '-2.5' },
+        } } },
+      ],
+    });
+
+    // When
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.status).toBe('ok');
+    expect(snapshot.extraCredits?.balanceAmount).toBe(-2.5);
+    expect(snapshot.windows).toEqual([expect.objectContaining({ kind: 'session_5h', usedPercent: 23 })]);
+  });
+
+  it.each([
+    { unlimited: true, balance: null },
+    { unlimited: false, balance: null },
+    { unlimited: false, balance: 'not-a-number' },
+  ])('preserves unlimited or unknown balances without replacing them with zero: %j', async (input) => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'chatgpt',
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: CREDIT_USAGE, reply: { json: { data: [] } } },
+        { match: USAGE, reply: { json: { rate_limit: {}, credits: { has_credits: false, ...input } } } },
+      ],
+    });
+
+    // When
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.extraCredits).toEqual({ unit: 'credits', unlimited: input.unlimited, balanceAmount: undefined });
+    expect(snapshot.windows.find((w) => w.kind === 'month')?.usedAmount).toBe(0);
+  });
+
+  it('does not query personal purchased-credit history for a workspace account', async () => {
+    // Given
+    const ctx = makeCtx({
+      provider: 'chatgpt',
+      routes: [
+        { match: SESSION, reply: { json: signedIn() } },
+        { match: USAGE, reply: { json: { plan_type: 'business', rate_limit: {}, credits: { has_credits: true, unlimited: true } } } },
+      ],
+    });
+
+    // When
+    const snapshot = await chatgptAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(snapshot.extraCredits?.unlimited).toBe(true);
+    expect(ctx.calls.map((call) => call.url)).toEqual([SESSION, USAGE]);
   });
 
   it('uses the current count when the detail endpoint still returns already-used credits as available', async () => {

@@ -61,6 +61,7 @@ export function errorSnapshot(
     grants: previous?.grants ?? [],
     grantSupport: previous?.grantSupport ?? 'n/a',
     balance: previous?.balance,
+    extraCredits: previous?.extraCredits,
     fetchedAt: previous?.fetchedAt ?? now.toISOString(),
     attemptedAt: now.toISOString(),
     error: { code: status, message, ...(retryAt ? { retryAt } : {}) },

@@ -21,6 +21,7 @@ import {
 const SESSION_URL = 'https://chatgpt.com/api/auth/session';
 const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 const CREDITS_URL = 'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits';
+const CREDIT_USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage/credit-usage-events';
 const TOKEN_CACHE_KEY = 'chatgpt:token';
 const ACCOUNT_CACHE_KEY = 'chatgpt:account';
 
@@ -157,6 +158,44 @@ function weeklyModelWindows(raw: unknown, now: Date): UsageWindow[] {
     }
   }
   return windows;
+}
+
+async function monthlyCreditUsage(
+  ctx: ProviderContext,
+  headers: Record<string, string>,
+  now: Date,
+): Promise<UsageWindow | undefined> {
+  // This optional report must not hide successfully fetched subscription limits or balance.
+  try {
+    const response = await ctx.get(CREDIT_USAGE_URL, { credentials: 'omit', headers });
+    if (statusFromHttp(response) || !isRecord(response.json) || !Array.isArray(response.json.data)) return undefined;
+    const today = now.toISOString().slice(0, 10);
+    const monthStart = `${today.slice(0, 7)}-01`;
+    let usedAmount = 0;
+    for (const event of response.json.data) {
+      if (!isRecord(event) || typeof event.date !== 'string' || typeof event.credit_amount !== 'number' || !Number.isFinite(event.credit_amount)) {
+        return undefined;
+      }
+      const date = event.date.slice(0, 10);
+      const parsed = new Date(`${date}T00:00:00Z`);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+        return undefined;
+      }
+      if (date >= monthStart && date <= today) usedAmount += event.credit_amount;
+    }
+    if (!Number.isFinite(usedAmount)) return undefined;
+    return {
+      kind: 'month',
+      label: 'Extra credits',
+      unit: 'credits',
+      usedAmount,
+      periodTz: 'UTC',
+      resetsAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
+    };
+  } catch (error) {
+    if (error instanceof Error) return undefined;
+    throw error;
+  }
 }
 
 function grantScope(resetType: unknown): GrantScope {
@@ -308,6 +347,20 @@ export const chatgptAdapter: ProviderAdapter = {
       snapshot.plan = typeof usage.json.plan_type === 'string' ? usage.json.plan_type : undefined;
       snapshot.account = accountId;
       snapshot.windows = windows;
+
+      const extra = usage.json.credits;
+      if (isRecord(extra) && typeof extra.has_credits === 'boolean' && typeof extra.unlimited === 'boolean') {
+        snapshot.extraCredits = {
+          unit: 'credits',
+          balanceAmount: num(extra.balance),
+          unlimited: extra.unlimited,
+        };
+        // Workspace analytics use different reports; this endpoint is for purchased personal credits.
+        if (!['team', 'business', 'enterprise', 'edu'].includes(snapshot.plan ?? '')) {
+          const monthly = await monthlyCreditUsage(ctx, headers, now);
+          if (monthly) snapshot.windows.push(monthly);
+        }
+      }
 
       const resetCredits = usage.json.rate_limit_reset_credits;
       const availableCount = isRecord(resetCredits) && typeof resetCredits.available_count === 'number' && Number.isFinite(resetCredits.available_count)

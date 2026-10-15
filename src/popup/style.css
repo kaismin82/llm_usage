@@ -398,6 +398,48 @@ summary:focus-visible {
   margin-left: 2px;
 }
 
+.extra-credit-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0 8px;
+  min-height: 17px;
+  align-items: baseline;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.extra-credit-label {
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.extra-credit-values {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0 4px;
+  margin-left: auto;
+}
+
+.extra-credit-values span {
+  white-space: nowrap;
+}
+
+.extra-credit-values b {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.has-extra-credits {
+  padding-block: 5px 4px;
+}
+
+.has-extra-credits .win-row,
+.has-extra-credits .models {
+  height: 18px;
+}
+
 .is-dim .name {
   color: var(--text-2);
 }

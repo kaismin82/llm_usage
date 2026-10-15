@@ -12,7 +12,7 @@ export type WindowKind =
   | 'month'
   | 'budget';
 
-export type WindowUnit = 'percent' | 'usd' | 'points' | 'calls' | 'tokens';
+export type WindowUnit = 'percent' | 'usd' | 'credits' | 'points' | 'calls' | 'tokens';
 
 export interface UsageWindow {
   kind: WindowKind;
@@ -57,6 +57,14 @@ export type SnapshotStatus =
 
 export type GrantSupport = 'supported' | 'not_eligible' | 'unsupported' | 'n/a';
 
+export interface ExtraCredits {
+  readonly unit: 'usd' | 'credits';
+  readonly balanceAmount?: number;
+  readonly unlimited?: boolean;
+  /** Only set when the provider exposes an explicit extra-usage toggle. */
+  readonly isEnabled?: boolean;
+}
+
 export interface ProviderSnapshot {
   provider: ProviderId;
   status: SnapshotStatus;
@@ -65,6 +73,7 @@ export interface ProviderSnapshot {
   windows: UsageWindow[];
   grants: ResetGrant[];
   grantSupport: GrantSupport;
+  extraCredits?: ExtraCredits;
   balance?: { amount: number; unit: 'usd' | 'points'; limit?: number; label?: string; resetsAt?: string | null };
   fetchedAt: string;
   attemptedAt: string;
