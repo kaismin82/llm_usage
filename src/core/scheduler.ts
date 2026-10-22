@@ -99,7 +99,10 @@ export async function runProviders(
       await deps.appendEvents(events);
     }
     const failures = snapshot.status === 'ok' ? 0 : (state[id]?.failures ?? 0) + 1;
-    const next = nextAttemptAt(now, providerSettings.intervalMin, snapshot.status, failures, snapshot.error?.retryAt);
+    // Browser sessions can recover without changing extension settings; API-key failures stay paused.
+    const retryStatus = snapshot.status === 'auth_required' && (id === 'claude' || id === 'chatgpt')
+      ? 'error' : snapshot.status;
+    const next = nextAttemptAt(now, providerSettings.intervalMin, retryStatus, failures, snapshot.error?.retryAt);
     newState[id] = { nextDueAt: next === null ? null : next.toISOString(), failures };
     for (const window of snapshot.windows) {
       if (!window.resetsAt) continue;

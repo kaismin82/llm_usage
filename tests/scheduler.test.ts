@@ -216,6 +216,37 @@ describe('runProviders', () => {
     expect(deps.states[0].claude).toEqual({ nextDueAt: null, failures: 1 });
   });
 
+  it.each(['claude', 'chatgpt'] as const)('retries %s session auth with bounded backoff instead of pausing forever', async (id) => {
+    // Given
+    const deps = makeDeps({
+      settings: settingsFor([id]),
+      state: { [id]: { nextDueAt: NOW.toISOString(), failures: 2 } },
+      fetch: async () => ({ ...baseSnapshot(id, NOW), status: 'auth_required' }),
+    });
+
+    // When
+    await runProviders([id], deps);
+
+    // Then
+    expect(deps.states[0][id]).toEqual({
+      nextDueAt: new Date(NOW.getTime() + 240_000).toISOString(), failures: 3,
+    });
+  });
+
+  it('keeps API-key auth failures paused', async () => {
+    // Given
+    const deps = makeDeps({
+      settings: settingsFor(['poe']),
+      fetch: async () => ({ ...baseSnapshot('poe', NOW), status: 'auth_required' }),
+    });
+
+    // When
+    await runProviders(['poe'], deps);
+
+    // Then
+    expect(deps.states[0].poe).toEqual({ nextDueAt: null, failures: 1 });
+  });
+
   it('skips the permission check when the provider needs no host origin', async () => {
     const settings = settingsFor(['litellm']);
     const deps = makeDeps({ settings, hasOrigins: false });

@@ -16,8 +16,8 @@ export interface TabBridgeApi {
     executeScript(injection: {
       target: { tabId: number };
       world: 'ISOLATED';
-      func: (url: string, headers: Record<string, string>) => Promise<TabFetchResponse>;
-      args: [string, Record<string, string>];
+      func: (url: string, headers: Record<string, string>, timeoutMs: number) => Promise<TabFetchResponse>;
+      args: [string, Record<string, string>, number];
     }): Promise<Array<{ result?: TabFetchResponse }>>;
   };
 }
@@ -37,8 +37,10 @@ function chromeApi(): TabBridgeApi {
   };
 }
 
-async function fetchFromTab(url: string, headers: Record<string, string>): Promise<TabFetchResponse> {
-  const response = await fetch(url, { credentials: 'include', headers });
+async function fetchFromTab(url: string, headers: Record<string, string>, timeoutMs: number): Promise<TabFetchResponse> {
+  const response = await fetch(url, {
+    method: 'GET', credentials: 'include', headers, cache: 'no-store', signal: AbortSignal.timeout(timeoutMs),
+  });
   const resultHeaders: Record<string, string> = {};
   response.headers.forEach((value, name) => {
     resultHeaders[name.toLowerCase()] = value;
@@ -60,7 +62,7 @@ export function createTabBridge(api?: TabBridgeApi): TabBridge {
           target: { tabId },
           world: 'ISOLATED',
           func: fetchFromTab,
-          args: [url, init.headers ?? {}],
+          args: [url, init.headers ?? {}, init.timeoutMs ?? 15_000],
         });
         const result = results[0]?.result;
         if (!result) return null;

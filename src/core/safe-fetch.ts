@@ -19,6 +19,7 @@ export function createSafeFetch(opts: SafeFetchOptions = {}): ProviderContext['g
   return async (url, init = {}) => {
     const allowedUrl = assertAllowed(url, 'GET');
     const timeoutMs = init.timeoutMs ?? opts.defaultTimeoutMs ?? 15_000;
+    const startedAt = Date.now();
     const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
 
@@ -36,12 +37,23 @@ export function createSafeFetch(opts: SafeFetchOptions = {}): ProviderContext['g
     }
 
     const result = buildHttpResult(response.status, headersToRecord(response.headers), await response.text());
+    const sessionAuthFailure = init.credentials === 'include' && (result.status === 401 || result.status === 403);
     if (
-      result.challenge &&
+      (result.challenge || sessionAuthFailure) &&
       (allowedUrl.hostname === 'claude.ai' || allowedUrl.hostname === 'chatgpt.com') &&
       opts.tabBridge
     ) {
-      return (await opts.tabBridge.fetchViaTab(url, init)) ?? result;
+      const remainingMs = timeoutMs - (Date.now() - startedAt);
+      if (remainingMs > 0) {
+        const fallback = await opts.tabBridge.fetchViaTab(url, { ...init, timeoutMs: remainingMs });
+        if (fallback && (
+          fallback.challenge ||
+          (fallback.status >= 200 && fallback.status < 300 && fallback.json !== undefined) ||
+          (result.challenge && fallback.status === 401)
+        )) {
+          return fallback;
+        }
+      }
     }
     return result;
   };

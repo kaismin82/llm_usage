@@ -4,6 +4,7 @@ import type {
   ProviderContext,
   ProviderSnapshot,
   ResetGrant,
+  SnapshotStatus,
   UsageWindow,
 } from './types';
 import {
@@ -28,6 +29,13 @@ const REQUEST_INIT = {
 interface Organization {
   id: string;
   record?: Record<string, unknown>;
+}
+
+class OrganizationRequestError extends Error {
+  readonly name = 'OrganizationRequestError';
+  constructor(readonly response: HttpResult, readonly status: SnapshotStatus) {
+    super(`Organization discovery failed (HTTP ${response.status})`);
+  }
 }
 
 function iso(value: unknown): string | null | undefined {
@@ -197,7 +205,7 @@ async function discoverOrganization(ctx: ProviderContext, useConfiguredId: boole
   if (cached) return { id: cached };
   const response = await ctx.get(ORGS_URL, REQUEST_INIT);
   const status = statusFromHttp(response);
-  if (status) throw { response, status };
+  if (status) throw new OrganizationRequestError(response, status);
   const organizations = organizationList(response.json);
   if (!organizations || organizations.length === 0) return undefined;
   const selected = organizations.find((org) => Array.isArray(org.capabilities) && org.capabilities.includes('chat')) ?? organizations[0];
@@ -207,9 +215,16 @@ async function discoverOrganization(ctx: ProviderContext, useConfiguredId: boole
   return { id, record: selected };
 }
 
-async function getUsage(ctx: ProviderContext, orgId: string, withGrantQuery: boolean): Promise<HttpResult> {
-  const suffix = withGrantQuery ? '?cedar_ember=1' : '';
-  return ctx.get(`https://claude.ai/api/organizations/${orgId}/usage${suffix}`, REQUEST_INIT);
+async function getUsage(
+  ctx: ProviderContext,
+  orgId: string,
+): Promise<{ readonly response: HttpResult; readonly grantQuerySupported: boolean }> {
+  const url = `https://claude.ai/api/organizations/${orgId}/usage`;
+  const response = await ctx.get(`${url}?cedar_ember=1`, REQUEST_INIT);
+  if (!response.challenge && response.status !== 200 && response.status !== 401 && response.status !== 429) {
+    return { response: await ctx.get(url, REQUEST_INIT), grantQuerySupported: false };
+  }
+  return { response, grantQuerySupported: true };
 }
 
 export const claudeAdapter: ProviderAdapter = {
@@ -217,32 +232,20 @@ export const claudeAdapter: ProviderAdapter = {
   async fetchSnapshot(ctx): Promise<ProviderSnapshot> {
     const now = ctx.now();
     try {
-      let organization: Organization | undefined;
-      try {
-        organization = await discoverOrganization(ctx, true);
-      } catch (error) {
-        if (isRecord(error) && 'response' in error && 'status' in error && typeof error.status === 'string') {
-          const response = error.response as HttpResult;
-          return errorSnapshot('claude', now, error.status as ProviderSnapshot['status'], `Organization discovery failed (HTTP ${response.status})`, ctx.previous, retryAtFromHeaders(response, now));
-        }
-        throw error;
-      }
+      let organization = await discoverOrganization(ctx, true);
       if (!organization) return errorSnapshot('claude', now, 'schema_changed', 'Organization schema changed', ctx.previous);
 
-      let response = await getUsage(ctx, organization.id, true);
-      let grantQuerySupported = true;
-      if (response.status === 404) {
+      let { response, grantQuerySupported } = await getUsage(ctx, organization.id);
+      if (response.status === 404 || (
+        !ctx.providerSettings.orgId && !response.challenge && (response.status === 401 || response.status === 403)
+      )) {
         await ctx.cache.set(ORG_CACHE_KEY, '');
         organization = await discoverOrganization(ctx, false);
         if (!organization) return errorSnapshot('claude', now, 'schema_changed', 'Organization schema changed', ctx.previous);
-        response = await getUsage(ctx, organization.id, true);
-      }
-      if (!response.challenge && response.status !== 200 && response.status !== 401 && response.status !== 429) {
-        response = await getUsage(ctx, organization.id, false);
-        grantQuerySupported = false;
+        ({ response, grantQuerySupported } = await getUsage(ctx, organization.id));
       }
       const httpStatus = statusFromHttp(response);
-      if (httpStatus) return errorSnapshot('claude', now, httpStatus, 'Usage request failed', ctx.previous, retryAtFromHeaders(response, now));
+      if (httpStatus) return errorSnapshot('claude', now, httpStatus, `Usage request failed (HTTP ${response.status})`, ctx.previous, retryAtFromHeaders(response, now));
       if (!isRecord(response.json)) return errorSnapshot('claude', now, 'schema_changed', 'Usage schema changed', ctx.previous);
 
       const snapshot = baseSnapshot('claude', now);
@@ -261,6 +264,9 @@ export const claudeAdapter: ProviderAdapter = {
       snapshot.grantSupport = grantData.grantSupport;
       return snapshot;
     } catch (error) {
+      if (error instanceof OrganizationRequestError) {
+        return errorSnapshot('claude', now, error.status, error.message, ctx.previous, retryAtFromHeaders(error.response, now));
+      }
       return errorToSnapshot('claude', now, error, ctx.previous);
     }
   },

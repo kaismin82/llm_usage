@@ -205,4 +205,71 @@ describe('claudeAdapter', () => {
 
     await expect(claudeAdapter.fetchSnapshot(ctx)).resolves.toMatchObject({ status: 'ok' });
   });
+
+  it.each([401, 403])('rediscovers a cached organization rejected with HTTP %s', async (status) => {
+    // Given
+    const oldId = '00000000-0000-0000-0000-000000000008';
+    const newId = '00000000-0000-0000-0000-000000000009';
+    const ctx = makeCtx({
+      provider: 'claude',
+      routes: [
+        { match: `/organizations/${oldId}/usage`, reply: { status } },
+        { match: /\/api\/organizations$/, reply: { json: [{ uuid: newId, capabilities: ['chat'] }] } },
+        { match: `/organizations/${newId}/usage`, reply: { json: { five_hour: { utilization: 7, resets_at: null } } } },
+      ],
+    });
+    await ctx.cache.set('claude:orgId', oldId);
+
+    // When
+    const result = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(result).toMatchObject({ status: 'ok', windows: [expect.objectContaining({ usedPercent: 7 })] });
+    expect(await ctx.cache.get('claude:orgId')).toBe(newId);
+    expect(ctx.calls).toHaveLength(status === 403 ? 4 : 3);
+  });
+
+  it('preserves auth classification when organization rediscovery finds an expired session', async () => {
+    // Given
+    const oldId = '00000000-0000-0000-0000-000000000008';
+    const ctx = makeCtx({
+      provider: 'claude',
+      routes: [
+        { match: `/organizations/${oldId}/usage`, reply: { status: 404 } },
+        { match: /\/api\/organizations$/, reply: { status: 403 } },
+      ],
+    });
+    await ctx.cache.set('claude:orgId', oldId);
+
+    // When
+    const result = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(result.status).toBe('auth_required');
+    expect(ctx.calls).toHaveLength(3);
+  });
+
+  it('keeps plain usage working when the optional grant query is forbidden', async () => {
+    // Given
+    const orgId = '00000000-0000-0000-0000-000000000008';
+    const ctx = makeCtx({
+      provider: 'claude',
+      routes: [
+        { match: '/usage?cedar_ember=1', reply: { status: 403 } },
+        { match: /\/usage$/, reply: { json: { five_hour: { utilization: 8, resets_at: null } } } },
+      ],
+    });
+    await ctx.cache.set('claude:orgId', orgId);
+
+    // When
+    const result = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(result).toMatchObject({ status: 'ok', grantSupport: 'unsupported' });
+    expect(result.windows[0].usedPercent).toBe(8);
+    expect(ctx.calls.map((call) => call.url)).toEqual([
+      `https://claude.ai/api/organizations/${orgId}/usage?cedar_ember=1`,
+      `https://claude.ai/api/organizations/${orgId}/usage`,
+    ]);
+  });
 });

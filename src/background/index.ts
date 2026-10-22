@@ -72,7 +72,13 @@ function runAll(ids: ProviderId[], opts: { force?: boolean } = {}): Promise<void
 }
 
 async function runDue(): Promise<void> {
-  const [settings, state] = await Promise.all([getSettings(), getScheduleState()]);
+  const [settings, state, snapshots] = await Promise.all([getSettings(), getScheduleState(), getSnapshots()]);
+  // Recover session-auth states persisted by versions that paused them indefinitely.
+  const pausedSessions = PROVIDER_IDS.filter((id) =>
+    (id === 'claude' || id === 'chatgpt') && settings.providers[id].enabled &&
+    state[id]?.nextDueAt === null && snapshots[id]?.status === 'auth_required',
+  );
+  if (pausedSessions.length > 0) await runAll(pausedSessions, { force: true });
   await runAll(dueProviders(settings, state, new Date()));
 }
 
@@ -163,16 +169,15 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete') return;
   const provider = providerForTab(tab.url);
   if (provider === null) return;
-  const last = tabPollAt.get(provider) ?? 0;
-  const now = Date.now();
-  if (now - last < TAB_RETRY_MS) return;
-  tabPollAt.set(provider, now);
   void (async () => {
     const [settings, snapshots] = await Promise.all([getSettings(), getSnapshots()]);
     if (!settings.providers[provider].enabled) return;
     const snapshot = snapshots[provider];
     if (snapshot === undefined) return;
     if (snapshot.status !== 'auth_required' && snapshot.status !== 'challenge') return;
+    const now = Date.now();
+    if (now - (tabPollAt.get(provider) ?? 0) < TAB_RETRY_MS) return;
+    tabPollAt.set(provider, now);
     await runProvider(provider, { force: true });
   })();
 });
