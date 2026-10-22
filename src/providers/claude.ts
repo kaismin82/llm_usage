@@ -262,6 +262,13 @@ export const claudeAdapter: ProviderAdapter = {
         : { grants: [], grantSupport: 'unsupported' as const };
       snapshot.grants = grantData.grants;
       snapshot.grantSupport = grantData.grantSupport;
+      if (snapshot.grantSupport === 'unsupported' && ctx.previous?.grantSupport === 'supported') {
+        snapshot.grants = ctx.previous.grants;
+        snapshot.grantSupport = ctx.previous.grantSupport;
+        snapshot.status = 'stale';
+        snapshot.fetchedAt = ctx.previous.fetchedAt;
+        snapshot.error = { code: 'stale', message: 'Reset inventory unavailable; previous inventory retained' };
+      }
       return snapshot;
     } catch (error) {
       if (error instanceof OrganizationRequestError) {

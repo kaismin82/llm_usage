@@ -99,6 +99,7 @@ export function nextGrantExpiry(snapshot: ProviderSnapshot): string | null {
 }
 
 export const STATUS_LABELS: Record<string, string> = {
+  stale: '갱신 지연',
   auth_required: '로그인 필요',
   challenge: 'Cloudflare 확인 필요',
   rate_limited: '요청 제한',

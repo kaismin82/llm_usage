@@ -34,6 +34,31 @@ function window(overrides: Partial<UsageWindow> = {}): UsageWindow {
 }
 
 describe('reset detector', () => {
+  it.each([
+    [false, 'unsupported'], [true, 'unsupported'],
+    [false, 'not_eligible'], [true, 'not_eligible'],
+  ] as const)('does not infer grant changes across missing inventories (missing previous: %s, support: %s)', (missingPrevious, support) => {
+    // Given
+    const known = snapshot({ grants: [grant()], windows: [window({ resetsAt: '2026-10-01T15:00:00.000Z' })] });
+    const missing = snapshot({ grantSupport: support, windows: [window({ usedPercent: 40, resetsAt: '2026-10-01T15:00:00.000Z' })] });
+    const previous = missingPrevious ? missing : known;
+    const current = missingPrevious ? known : missing;
+    // When
+    const events = detectResetEvents(previous, current, now);
+    // Then
+    expect(events.map((entry) => entry.type)).toEqual(missingPrevious ? [] : ['WINDOW_RESET_EARLY']);
+  });
+
+  it('preserves known expiries when the next inventory is unsupported', () => {
+    // Given
+    const previous = snapshot({ grants: [grant({ expiresAt: '2026-10-01T11:00:00.000Z' }), grant({ idHash: 'unexpired' })] });
+    const current = snapshot({ grantSupport: 'unsupported' });
+    // When
+    const events = detectResetEvents(previous, current, now);
+    // Then
+    expect(events.map((entry) => entry.type)).toEqual(['GRANT_EXPIRED']);
+  });
+
   it('counts available grants and finds their earliest expiry', () => {
     const current = snapshot({
       grants: [
@@ -107,6 +132,19 @@ describe('reset detector', () => {
   it('reports previously available grants that have expired', () => {
     const previous = snapshot({ grants: [grant({ expiresAt: '2026-10-01T11:00:00.000Z' })] });
     expect(detectResetEvents(previous, snapshot(), now).map((event) => event.type)).toEqual(['GRANT_EXPIRED']);
+  });
+
+  it('does not call an expired grant with a cleared count consumed', () => {
+    // Given
+    const expiresAt = '2026-10-01T11:00:00.000Z';
+    const previous = snapshot({ grants: [grant({ remaining: 2, expiresAt })] });
+    const current = snapshot({ grants: [grant({ remaining: 0, status: 'expired', expiresAt })] });
+
+    // When
+    const events = detectResetEvents(previous, current, now);
+
+    // Then
+    expect(events.map((event) => event.type)).toEqual(['GRANT_EXPIRED']);
   });
 
   it('detects an early window reset but not a natural rollover', () => {

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../src/providers/claude';
+import { availableGrantCount, detectResetEvents } from '../src/core/reset-detector';
+import type { ProviderSnapshot } from '../src/providers/types';
 import { makeCtx } from './helpers';
 
 describe('claudeAdapter', () => {
@@ -270,6 +272,64 @@ describe('claudeAdapter', () => {
     expect(ctx.calls.map((call) => call.url)).toEqual([
       `https://claude.ai/api/organizations/${orgId}/usage?cedar_ember=1`,
       `https://claude.ai/api/organizations/${orgId}/usage`,
+    ]);
+  });
+
+  it('retains known Claude grants as stale when only plain usage remains available', async () => {
+    // Given
+    const previous: ProviderSnapshot = {
+      provider: 'claude', status: 'ok', windows: [], grantSupport: 'supported',
+      grants: [{ provider: 'claude', idHash: 'known-credit', scope: 'session_5h', remaining: 1, status: 'available' }],
+      fetchedAt: '2026-10-01T11:00:00.000Z', attemptedAt: '2026-10-01T11:00:00.000Z',
+    };
+    const ctx = makeCtx({
+      provider: 'claude', previous,
+      providerSettings: { orgId: '00000000-0000-0000-0000-000000000008' },
+      routes: [
+        { match: '/usage?cedar_ember=1', reply: { status: 403 } },
+        { match: /\/usage$/, reply: { json: { five_hour: { utilization: 8, resets_at: null } } } },
+      ],
+    });
+
+    // When
+    const result = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(result).toMatchObject({
+      status: 'stale', grantSupport: 'supported', grants: previous.grants, fetchedAt: previous.fetchedAt,
+      windows: [expect.objectContaining({ usedPercent: 8 })],
+    });
+    expect(detectResetEvents(previous, result, ctx.now())).toEqual([]);
+  });
+
+  it.each([1, 0])('reflects a consumed Claude grant with %s uses left in totals and reset events', async (remaining) => {
+    // Given
+    const orgId = '00000000-0000-0000-0000-000000000003';
+    const responseFor = (remaining: number) => ({
+      five_hour: { utilization: 5, resets_at: null },
+      cedar_ember: { eligible: true, grants: [{
+        id: 'same-credit', resets_left: remaining, paused: false,
+        starts_at: null, ends_at: null, clears: ['five_hour'],
+      }] },
+    });
+    const previous = await claudeAdapter.fetchSnapshot(makeCtx({
+      provider: 'claude', providerSettings: { orgId },
+      routes: [{ match: '/usage', reply: { json: responseFor(2) } }],
+    }));
+    const ctx = makeCtx({
+      provider: 'claude', providerSettings: { orgId }, previous,
+      routes: [{ match: '/usage', reply: { json: responseFor(remaining) } }],
+    });
+
+    // When
+    const current = await claudeAdapter.fetchSnapshot(ctx);
+
+    // Then
+    expect(current.grants).toEqual([expect.objectContaining({ remaining, status: remaining === 0 ? 'used' : 'available' })]);
+    expect(current.grants[0].idHash).toBe(previous.grants[0].idHash);
+    expect(availableGrantCount(current)).toBe(remaining);
+    expect(detectResetEvents(previous, current, ctx.now())).toEqual([
+      { type: 'GRANT_USED', provider: 'claude', scope: 'session_5h', at: ctx.now().toISOString() },
     ]);
   });
 });

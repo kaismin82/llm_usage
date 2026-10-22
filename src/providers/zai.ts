@@ -53,29 +53,38 @@ export const zaiAdapter: ProviderAdapter = {
         }
       }
       if (windows.length === 0) return errorSnapshot('zai', now, 'schema_changed', 'No recognized quota windows', ctx.previous);
-      const snapshot = baseSnapshot('zai', now);
+      const snapshot = ctx.previous?.grantSupport === 'supported'
+        ? errorSnapshot('zai', now, 'stale', 'Reset inventory unavailable; previous inventory retained', ctx.previous)
+        : baseSnapshot('zai', now);
       snapshot.plan = typeof data.level === 'string' ? data.level : undefined;
       snapshot.windows = windows;
-      snapshot.grantSupport = 'unsupported';
+      snapshot.grantSupport = ctx.previous?.grantSupport === 'supported' ? 'supported' : 'unsupported';
       try {
         const result = await ctx.get(`${host}/api/biz/customer-package-reset/list?targetType=PERSONAL`, init);
         if (statusFromHttp(result) || !isRecord(result.json) || result.json.success !== true) return snapshot;
-        const resetData = isRecord(result.json.data) ? result.json.data : {};
+        if (!isRecord(result.json.data)) return snapshot;
+        const resetData = result.json.data;
         const grants: ResetGrant[] = [];
         for (const [field, scope] of [['fiveHourResets', 'session_5h'], ['weekResets', 'weekly_7d']] as const) {
           const records = resetData[field];
-          if (!Array.isArray(records)) continue;
+          if (!Array.isArray(records)) return snapshot;
           for (const record of records) {
-            if (!isRecord(record) || record.recordId === undefined || typeof record.available !== 'boolean') continue;
+            if (!isRecord(record) || typeof record.available !== 'boolean') return snapshot;
+            const recordId = record.recordId;
+            if (!(typeof recordId === 'string' && recordId.trim() !== '') &&
+                !(typeof recordId === 'number' && Number.isFinite(recordId))) return snapshot;
             const expiresAt = utc8ToIso(record.expireTime);
+            if (record.expireTime != null && expiresAt === undefined) return snapshot;
             grants.push({ provider: 'zai', idHash: await hashId('zai', `${scope}:${String(record.recordId)}`), scope, remaining: record.available ? 1 : 0, expiresAt: expiresAt ?? null, title: null, status: !record.available ? 'used' : expiresAt && Date.parse(expiresAt) <= now.getTime() ? 'expired' : 'available' });
           }
         }
         snapshot.grants = grants;
         snapshot.grantSupport = 'supported';
+        snapshot.status = 'ok';
+        snapshot.fetchedAt = now.toISOString();
+        snapshot.error = undefined;
       } catch {
-        snapshot.grantSupport = 'unsupported';
-        snapshot.grants = [];
+        return snapshot;
       }
       return snapshot;
     } catch (error) {

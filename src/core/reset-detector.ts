@@ -38,7 +38,11 @@ export function detectResetEvents(
   const previousByHash = new Map(prev?.grants.map((grant) => [grant.idHash, grant]));
 
   const countOnly = [...(prev?.grants ?? []), ...next.grants].some((grant) => grant.countOnly);
-  if (!firstRun && countOnly && prev.grantSupport === 'supported' && next.grantSupport === 'supported') {
+  // Missing observations or eligibility changes do not prove a credit was added or consumed.
+  const comparableInventories = !firstRun &&
+    prev.grantSupport !== 'unsupported' && next.grantSupport !== 'unsupported' &&
+    prev.grantSupport !== 'not_eligible' && next.grantSupport !== 'not_eligible';
+  if (comparableInventories && countOnly && prev.grantSupport === 'supported' && next.grantSupport === 'supported') {
     // A fallback inventory has no real credit IDs. Compare totals so switching between
     // verified details and count-only data does not look like every credit was replaced.
     const change = availableGrantCount(next) - availableGrantCount(prev);
@@ -49,7 +53,7 @@ export function detectResetEvents(
     if (change < -expiredCount) events.push(event('GRANT_USED', 'unknown'));
   }
 
-  if (!firstRun && !countOnly) {
+  if (comparableInventories && !countOnly) {
     for (const grant of next.grants) {
       const previous = previousByHash.get(grant.idHash);
       if (grant.status === 'available' && (previous === undefined || grant.remaining > previous.remaining)) {
@@ -61,10 +65,12 @@ export function detectResetEvents(
       if (previous.status !== 'available') continue;
       const current = next.grants.find((grant) => grant.idHash === previous.idHash);
       const expired = validTime(previous.expiresAt);
-      const vanishedBeforeExpiry = current === undefined && (expired === null || expired > now.getTime());
+      const beforeExpiry = expired === null || expired > now.getTime();
       if (
-        (current !== undefined && (current.remaining < previous.remaining || current.status === 'used')) ||
-        vanishedBeforeExpiry
+        beforeExpiry && (
+          (current !== undefined && (current.remaining < previous.remaining || current.status === 'used')) ||
+          current === undefined
+        )
       ) {
         events.push(event('GRANT_USED', previous.scope));
       }
