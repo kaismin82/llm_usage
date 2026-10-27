@@ -90,6 +90,8 @@ PC 확장 -> 로컬 릴레이 127.0.0.1:8770 (POST /api/ingest) -> Tailscale -> 
 ```
 
 - 릴레이 서버(`src/phone-server/`, 실행 `scripts/phone-relay.ts`)와 폰 웹 화면(`phone/web/`)도 이 저장소에 있습니다. 릴레이는 `npm run phone`으로 실행하며, `127.0.0.1:8770`(확장 -> 릴레이, 쓰기)과 `127.0.0.1:8771`(폰 화면과 읽기 API)에서만 듣습니다. 읽기 API 앞의 Tailscale 구간(예: Tailscale Serve가 8771만 전달)은 이 저장소가 설정하지 않으며 코드로 검증하지 못했습니다.
+- 폰에서 접속: Tailscale Serve가 `https://<pc이름>.<tailnet>.ts.net`으로 8771 리더를 전달합니다. 릴레이는 기본적으로 로컬 호스트만 허용하므로, Serve 경유 접속에는 환경변수 `LLM_PHONE_HOSTS`에 해당 호스트 이름을 넣어야 합니다(예: `minholee-home.tail2f2c00.ts.net`).
+- 부팅 시 자동 실행: `scripts/phone-relay-task.ps1` 래퍼가 호스트 허용 변수를 설정하고 릴레이를 실행합니다. Windows 예약 작업 등록 예: 작업 스케줄러에서 "로그온 시" 트리거로 `powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File <repo>\scripts\phone-relay-task.ps1` 실행(실행 시간 제한 없음, 이미 실행 중이면 새 인스턴스 시작 안 함).
 - 토큰은 처음 실행할 때 `%LOCALAPPDATA%/LLMUsagePhone/credentials.json`(`LLM_PHONE_STATE_DIR`로 변경 가능)에 서로 다른 `readToken`, `writeToken`으로 생성됩니다. 마지막 수신본은 같은 폴더의 `snapshot.json`입니다. 환경변수 `LLM_PHONE_INGEST_PORT`, `LLM_PHONE_READER_PORT`로 포트를, `LLM_PHONE_HOSTS`(쉼표 구분)로 허용할 읽기 호스트 이름을 지정합니다.
 - 옵션 페이지의 **휴대폰 동기화** 섹션에서 켭니다. 릴레이의 **쓰기 토큰**(프로바이더 API 키가 아님)을 입력하고 저장하면 `http://127.0.0.1/*` 접근 권한을 요청합니다. 켜기, 토큰, 권한 중 하나라도 없으면 전송하지 않고 상태를 기록합니다.
 - 전송은 저장된 사용량 스냅샷만 사용하며 조회를 새로 일으키지 않습니다. 1분 주기 알람(heartbeat)과 설정·스냅샷이 바뀔 때 보냅니다. 요청은 5초 제한, 쿠키 없음, 리다이렉트 불허이며 응답 본문은 읽지 않습니다.
