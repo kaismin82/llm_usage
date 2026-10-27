@@ -1,6 +1,7 @@
 import type { ProviderAdapter, ProviderId } from '../providers/types';
 import { chatgptAdapter } from '../providers/chatgpt';
 import { claudeAdapter } from '../providers/claude';
+import { claudePlatformAdapter } from '../providers/claude-platform';
 import { litellmAdapter } from '../providers/litellm';
 import { openrouterAdapter } from '../providers/openrouter';
 import { poeAdapter } from '../providers/poe';
@@ -13,4 +14,5 @@ export const ADAPTERS: Record<ProviderId, ProviderAdapter> = {
   poe: poeAdapter,
   litellm: litellmAdapter,
   openrouter: openrouterAdapter,
+  claude_platform: claudePlatformAdapter,
 };

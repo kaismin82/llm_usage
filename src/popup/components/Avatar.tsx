@@ -7,6 +7,7 @@ const LETTERS: Record<ProviderId, string> = {
   poe: 'P',
   litellm: 'L',
   openrouter: 'O',
+  claude_platform: 'P',
 };
 
 export function Avatar({ id }: { id: ProviderId }) {

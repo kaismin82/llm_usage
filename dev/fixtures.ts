@@ -140,7 +140,12 @@ function healthy(now: Date): Record<ProviderId, ProviderSnapshot> {
     windows: costWindows(now, 'points', [1200, 8400, 31000], 'local', true),
     balance: { amount: 104018, unit: 'points', label: '남은 포인트' },
   };
-  return { claude, chatgpt, zai, poe, litellm, openrouter };
+  const claudePlatform: ProviderSnapshot = {
+    ...base('claude_platform', now),
+    windows: [{ kind: 'month', label: '이번달 (UTC)', unit: 'usd', usedAmount: 96.4, limitAmount: 200, usedPercent: 48.2, resetsAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(), windowSeconds: 2678400, periodTz: 'UTC' }],
+    balance: { amount: 103.6, unit: 'usd', label: '남은 한도', limit: 200, resetsAt: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString() },
+  };
+  return { claude, chatgpt, zai, poe, litellm, openrouter, claude_platform: claudePlatform };
 }
 
 function failing(now: Date): Record<ProviderId, ProviderSnapshot> {
@@ -158,6 +163,7 @@ function failing(now: Date): Record<ProviderId, ProviderSnapshot> {
     zai: errorOf(ok.zai, 'schema_changed', 'no recognizable windows'),
     poe: ok.poe,
     litellm: errorOf(ok.litellm, 'rate_limited', 'HTTP 429'),
+    claude_platform: errorOf(ok.claude_platform, 'auth_required', 'invalid admin key'),
     openrouter: { ...base('openrouter', now), status: 'not_configured', error: { code: 'not_configured', message: 'API key required' } },
   };
 }

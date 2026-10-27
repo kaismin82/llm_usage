@@ -8,6 +8,7 @@ const DEFAULT_INTERVALS: Record<ProviderId, number> = {
   poe: 10,
   litellm: 15,
   openrouter: 10,
+  claude_platform: 10,
 };
 
 const MIN_INTERVALS: Partial<Record<ProviderId, number>> = { claude: 5, chatgpt: 5, litellm: 10 };
@@ -29,6 +30,7 @@ export function defaultSettings(): AppSettings {
   providers.chatgpt.showFiveHour = true;
   providers.openrouter.mode = 'key';
   providers.litellm.mode = 'user';
+  providers.claude_platform.monthlyLimitUsd = 200;
   return {
     providers,
     timezone: 'Asia/Seoul',

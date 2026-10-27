@@ -23,6 +23,8 @@ export function originsFor(id: ProviderId, settings: ProviderSettings): string[]
       return ['https://api.poe.com/*'];
     case 'openrouter':
       return ['https://openrouter.ai/*'];
+    case 'claude_platform':
+      return ['https://api.anthropic.com/*'];
     case 'litellm': {
       const pattern = litellmOriginPattern(settings.baseUrl);
       return pattern ? [pattern] : [];

@@ -39,6 +39,7 @@ import { PhoneRelay } from './PhoneRelay';
 type FocusedKeys = Partial<Record<ProviderId, boolean>>;
 
 const SITE_LINKS: Partial<Record<ProviderId, { url: string; label: string }>> = {
+  claude_platform: { url: 'https://platform.claude.com/settings/admin-keys', label: 'Admin 키 발급' },
   claude: { url: 'https://claude.ai/', label: 'claude.ai 열기' },
   chatgpt: { url: 'https://chatgpt.com/', label: 'chatgpt.com 열기' },
 };
@@ -441,6 +442,31 @@ export function App() {
                 <option value="admin">관리자</option>
               </select>
             </label>
+          </div>
+        );
+      case 'claude_platform':
+        return (
+          <div class="provider-fields">
+            {apiKeyInput('Admin API 키 (sk-ant-admin01-)')}
+            <label class="field">
+              <span class="field-label">월 한도 (USD)</span>
+              <input
+                type="number"
+                class="input narrow"
+                min={0}
+                step={1}
+                value={ps.monthlyLimitUsd ?? 200}
+                onInput={(e) =>
+                  updateProvider(id, {
+                    monthlyLimitUsd: Math.max(0, Number((e.target as HTMLInputElement).value) || 0),
+                  })
+                }
+              />
+            </label>
+            <p class="warning">
+              Claude Platform(Anthropic API) 조직의 사용액입니다. claude.ai 구독 계정의 Extra usage와는
+              별개이며 합산되지 않습니다. 한도는 매월 1일(UTC)에 초기화되고 이월되지 않습니다. 0으로 두면 한도 없이 사용량만 표시합니다.
+            </p>
           </div>
         );
       case 'openrouter':

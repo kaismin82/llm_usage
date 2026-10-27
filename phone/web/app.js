@@ -5,10 +5,10 @@
   const TIMEOUT_MS = 12_000;
   const STALE_MS = 15 * 60_000;
   const STORAGE_KEY = 'llm-usage.reader-token';
-  const BUILTINS = ['claude', 'chatgpt', 'zai', 'openrouter', 'litellm', 'poe'];
+  const BUILTINS = ['claude', 'chatgpt', 'zai', 'openrouter', 'litellm', 'poe', 'claude_platform'];
   const SUBSCRIPTIONS = ['claude', 'chatgpt', 'zai'];
-  const COSTS = ['openrouter', 'litellm', 'poe'];
-  const LETTERS = { claude: 'C', chatgpt: 'G', zai: 'Z', openrouter: 'O', litellm: 'L', poe: 'P' };
+  const COSTS = ['openrouter', 'litellm', 'poe', 'claude_platform'];
+  const LETTERS = { claude: 'C', chatgpt: 'G', zai: 'Z', openrouter: 'O', litellm: 'L', poe: 'P', claude_platform: 'P' };
   const STATUS = {
     ok: '정상', stale: '갱신 지연', auth_required: 'PC에서 로그인 필요',
     challenge: 'PC에서 Cloudflare 확인', rate_limited: '요청 제한',

@@ -28,6 +28,9 @@ export function validateProviderSettings(
   if (id === 'openrouter' && s.enabled && !s.apiKey) {
     return 'API 키를 입력해주세요.';
   }
+  if (id === 'claude_platform' && s.enabled && !s.apiKey) {
+    return 'Admin API 키를 입력해주세요.';
+  }
   if (id === 'litellm') {
     if (s.enabled && !s.baseUrl) {
       return 'Base URL을 입력해주세요.';
@@ -121,10 +124,12 @@ export const PROVIDER_DISPLAY: Record<ProviderId, string> = {
   poe: 'Poe',
   litellm: 'LiteLLM',
   openrouter: 'OpenRouter',
+  claude_platform: 'Claude Platform (API)',
 };
 
 export const PROVIDER_ORDER: ProviderId[] = [
   'claude', 'chatgpt', 'zai', 'poe', 'litellm', 'openrouter',
+  'claude_platform',
 ];
 
 export function needsSessionLogin(id: ProviderId): boolean {

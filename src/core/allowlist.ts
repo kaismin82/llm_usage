@@ -23,13 +23,15 @@ const FIXED_HOST_PATHS: Record<string, RegExp[]> = {
   'api.poe.com': [/^\/usage\/current_balance$/, /^\/usage\/points_history$/],
   'openrouter.ai': [/^\/api\/v1\/(key|keys|activity|credits)$/],
   'status.claude.com': [/^\/api\/v2\/(incidents|summary)\.json$/],
+  // Anthropic Admin API: read-only cost reporting. Inference and every other path stay blocked.
+  'api.anthropic.com': [/^\/v1\/organizations\/cost_report$/],
 };
 
 const LITELLM_SUFFIX =
   /\/(key\/info|v2\/key\/info|user\/info|v2\/user\/info|user\/daily\/activity(\/aggregated)?|team\/daily\/activity|spend\/logs(\/v2)?|global\/spend\/report)$/;
 
 const DENIED_PATH = /\/(consume|redeem|reset_rate_limits)(\/|$)/i;
-const DENIED_HOSTS = new Set(['api.anthropic.com']);
+
 
 export function assertAllowed(rawUrl: string, method = 'GET'): URL {
   if (method.toUpperCase() !== 'GET') {
@@ -46,7 +48,6 @@ export function assertAllowed(rawUrl: string, method = 'GET'): URL {
   }
   const host = url.hostname.toLowerCase();
   const path = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
-  if (DENIED_HOSTS.has(host)) throw new BlockedError(`blocked: host ${host}`);
   if (DENIED_PATH.test(path)) throw new BlockedError(`blocked: state-changing path ${path}`);
   const fixed = FIXED_HOST_PATHS[host];
   if (fixed) {

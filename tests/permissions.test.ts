@@ -10,6 +10,7 @@ describe('originsFor', () => {
     expect(originsFor('chatgpt', s.providers.chatgpt)).toEqual(['https://chatgpt.com/*']);
     expect(originsFor('poe', s.providers.poe)).toEqual(['https://api.poe.com/*']);
     expect(originsFor('openrouter', s.providers.openrouter)).toEqual(['https://openrouter.ai/*']);
+    expect(originsFor('claude_platform', s.providers.claude_platform)).toEqual(['https://api.anthropic.com/*']);
   });
 
   it('switches z.ai host by region', () => {

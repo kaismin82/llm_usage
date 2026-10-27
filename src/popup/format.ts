@@ -117,6 +117,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   poe: 'Poe',
   litellm: 'LiteLLM',
   openrouter: 'OpenRouter',
+  claude_platform: 'Claude Platform',
 };
 
 export function formatShortDate(iso: string): string {

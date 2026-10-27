@@ -10,6 +10,7 @@
 | Poe | 일 / 주 / 월 사용 포인트, 남은 포인트 | API 키 |
 | LiteLLM | 일 / 주 / 월 비용(UTC), 남은 예산 | 가상키 또는 관리키 |
 | OpenRouter | 일 / 주 / 월 비용(UTC), 남은 크레딧 | API 키 또는 관리키 |
+| Claude Platform (API) | 이번달 사용액과 남은 월 한도(UTC 달력 기준, 이월 없음) | Anthropic Admin API 키 |
 
 - 확장 아이콘을 누르면 Chrome 사이드 패널이 열립니다(기본은 브라우저 오른쪽). 폭은 패널 폭에 맞춰 가변(최소 320px)이고 높이는 창 높이를 따릅니다. 패널의 좌/우 위치는 Chrome 설정을 따르며 확장이 강제할 수 없습니다.
 - 읽기 전용입니다. GET 요청만 보내며 reset 권을 소모하는 API는 코드가 호출하지 못하게 막혀 있습니다(`src/core/allowlist.ts`, `tests/allowlist.test.ts`).
@@ -61,6 +62,7 @@ npm run build
 | Poe | 10 | 1 |
 | LiteLLM | 15 | 10 |
 | OpenRouter | 10 | 1 |
+| Claude Platform (API) | 10 | 1 |
 | Custom provider | 10 | 1 (최대 60) |
 
 - 서비스 워커는 30초마다 tick을 돌며 주기가 된 provider만 조회합니다. 사용자가 자리를 비웠거나 화면이 잠겨도 수집은 계속됩니다(휴대폰 동기화가 이에 의존합니다). 유휴 상태 게이트는 reset 시각 알람에만 남아 있습니다.
@@ -108,6 +110,7 @@ PC 확장 -> 로컬 릴레이 127.0.0.1:8770 (POST /api/ingest) -> Tailscale -> 
 |---|---|
 | `npm run dev` | Chrome 확장 없이 일반 탭에서 팝업/옵션 UI를 샘플 데이터로 미리보기 (`/dev/index.html`) |
 | `npm run phone` | 휴대폰 릴레이 서버 실행 (`scripts/phone-relay.ts`) |
+| `npm run probe -- claude_platform` | `ANTHROPIC_ADMIN_KEY` 환경변수로 실제 cost report를 조회 |
 | `npm run probe -- <provider>` | 환경변수의 API 키로 실제 API를 호출해 어댑터 결과를 출력 (`--help` 참고) |
 | `npm run typecheck` | 타입 검사 |
 | `npm test` | 단위 테스트 |
@@ -157,6 +160,16 @@ tests/           단위 테스트
 - API 키는 `chrome.storage.local`에 암호화 없이 저장됩니다. 패스프레이즈 암호화 코드(`src/core/secrets.ts`)는 있으나 옵션 화면에는 연결하지 않았습니다.
 - Poe 사용 이력은 30일만 보존되므로 월간 합계는 설치 이후 누적분 기준입니다.
 - Claude/ChatGPT는 해당 사이트의 로그인된 탭이 열려 있을 때만 갱신됩니다. 탭이 없으면 마지막 값이 유지되고 로그인 필요 상태로 표시됩니다.
+
+## Claude Platform (API) 사용량
+
+Claude Platform(Anthropic API) 조직의 월간 사용액을 구독 계정과 별개로 표시합니다(v0.2.2).
+
+- 데이터 출처는 Anthropic **Usage & Cost Admin API**의 `GET /v1/organizations/cost_report`입니다(공식 문서 기준, GET-only). 확장의 allowlist는 `api.anthropic.com`에서 이 경로만 허용하고 추론 API(`/v1/messages` 등)와 나머지 경로는 계속 차단합니다.
+- 인증은 **Admin API 키**(`sk-ant-admin01-`...`)이 필요합니다. Claude Console의 Settings → Admin keys에서 만들고(조직 관리자 권한, 표시는 최초 1회), 옵션의 Claude Platform 항목에 넣습니다. 일반 API 키로는 401이 납니다.
+- 사용량은 UTC 달력 기준 이번달(1일 00:00 UTC ~) 합계이고 5분 정도 지연 후 반영됩니다. 월 한도는 설정값(기본 $200)이며 매월 1일(UTC)에 초기화되고 이월되지 않습니다. 0으로 두면 한도 없이 사용량만 표시합니다.
+- **claude.ai 구독 계정의 Extra usage와는 다른 값이며 합산되지 않습니다.** 구독 사용률은 Claude 카드에, API 사용액은 이 항목에 각각 표시됩니다.
+- 한계: 비용 엔드포인트는 Priority Tier 비용을 포함하지 않습니다(공식 문서 명시). 휴대폰 동기화 payload에도 이 항목이 포함되며 API 키는 전송되지 않습니다.
 - 사이드 패널 위치(좌/우)는 확장이 정할 수 없고 Chrome 설정을 따릅니다.
-- 검증 범위: 타입체크, 단위 테스트 413개(릴레이 서버 경계 테스트 14개 포함), 빌드는 통과했습니다. 사이드 패널은 임시 프로필 Chrome 156과 Aside에서 직접 열어 확인했으나 v0.2.0 빌드였고, v0.2.1은 Aside에서 다시 로드해 로드와 릴레이 전송 유지까지만 확인했습니다. 확장 -> 릴레이 전송(HTTP 200, 수신 시각이 1분 간격으로 전진)과 릴레이가 서빙하는 폰 화면의 390/375/360/430px 폭 렌더링은 헤드리스 Chrome으로 확인했습니다. 실제 iPhone에서 Tailscale을 거친 확인, 그리고 로그인 세션 보호가 실제 Claude/ChatGPT 계정에서 접속 불능을 해소하는지는 확인하지 못했습니다.
+- 검증 범위: 타입체크, 단위 테스트 422개(릴레이 서버 경계 테스트 14개 포함), 빌드는 통과했습니다. 사이드 패널은 임시 프로필 Chrome 156과 Aside에서 직접 열어 확인했으나 v0.2.0 빌드였고, v0.2.1은 Aside에서 다시 로드해 로드와 릴레이 전송 유지까지만 확인했습니다. Claude Platform 사용량 조회는 공식 문서 기준으로 구현했고 모의 응답 테스트만 통과했으며 실제 Admin 키로 실서버 조회한 적은 없습니다. 확장 -> 릴레이 전송(HTTP 200, 수신 시각이 1분 간격으로 전진)과 릴레이가 서빙하는 폰 화면의 390/375/360/430px 폭 렌더링은 헤드리스 Chrome으로 확인했습니다. 실제 iPhone에서 Tailscale을 거친 확인, 그리고 로그인 세션 보호가 실제 Claude/ChatGPT 계정에서 접속 불능을 해소하는지는 확인하지 못했습니다.
 - 같은 사이트에 접속하는 다른 확장(예: 사용량 추적류)도 같은 계정에 요청을 보낼 수 있어, 접속 문제가 계속되면 함께 점검해야 합니다.

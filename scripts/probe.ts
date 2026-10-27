@@ -5,6 +5,7 @@ import { defaultSettings } from '../src/core/settings';
 import { formatPoints, formatRelative, formatUsd } from '../src/popup/format';
 import { chatgptAdapter } from '../src/providers/chatgpt';
 import { claudeAdapter } from '../src/providers/claude';
+import { claudePlatformAdapter } from '../src/providers/claude-platform';
 import { litellmAdapter } from '../src/providers/litellm';
 import { openrouterAdapter } from '../src/providers/openrouter';
 import { createPoeAdapter } from '../src/providers/poe';
@@ -48,6 +49,11 @@ Only GET requests to allowlisted endpoints are sent; reset-credit consume/redeem
 function planFor(id: ProviderId, env: NodeJS.ProcessEnv): Plan {
   const need = (...names: string[]): string[] => names.filter((name) => !env[name]);
   switch (id) {
+    case 'claude_platform':
+      return {
+        missing: need('ANTHROPIC_ADMIN_KEY'),
+        settings: { apiKey: env.ANTHROPIC_ADMIN_KEY },
+      };
     case 'zai':
       return {
         missing: need('ZAI_API_KEY'),
@@ -89,6 +95,8 @@ function adapterFor(id: ProviderId): ProviderAdapter {
   switch (id) {
     case 'claude':
       return claudeAdapter;
+    case 'claude_platform':
+      return claudePlatformAdapter;
     case 'chatgpt':
       return chatgptAdapter;
     case 'zai':

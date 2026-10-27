@@ -32,6 +32,7 @@ export type PhonePayload = {
 
 const NAMES = {
   claude: 'Claude', chatgpt: 'ChatGPT', zai: 'Z.ai', poe: 'Poe', litellm: 'LiteLLM', openrouter: 'OpenRouter',
+  claude_platform: 'Claude Platform',
 };
 
 function phoneProvider(id: string, name: string, snapshot: ProviderSnapshot | CustomSnapshot): PhonePayload['providers'][number] {

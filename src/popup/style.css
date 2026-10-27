@@ -286,6 +286,7 @@ summary:focus-visible {
 }
 
 .avatar-claude { background: rgba(217, 119, 87, 0.2); color: #ffb59a; }
+.avatar-claude_platform { color: var(--claude); background: var(--claude-bg); }
 .avatar-chatgpt { background: rgba(16, 163, 127, 0.2); color: #6ee7c3; }
 .avatar-zai { background: rgba(79, 124, 255, 0.2); color: #a9c0ff; }
 .avatar-poe { background: rgba(139, 92, 246, 0.22); color: #d0b8ff; }

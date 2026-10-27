@@ -19,6 +19,7 @@ const PROVIDER_NAMES: Record<ProviderId, string> = {
   poe: 'Poe',
   litellm: 'LiteLLM',
   openrouter: 'OpenRouter',
+  claude_platform: 'Claude Platform',
 };
 
 const GRANT_COLOR = '#7e3af2';

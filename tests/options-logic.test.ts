@@ -228,9 +228,9 @@ describe('needsApiKey', () => {
 });
 
 describe('PROVIDER_ORDER', () => {
-  it('lists all six providers in the correct order', () => {
+  it('lists all providers in the correct order', () => {
     expect(PROVIDER_ORDER).toEqual([
-      'claude', 'chatgpt', 'zai', 'poe', 'litellm', 'openrouter',
+      'claude', 'chatgpt', 'zai', 'poe', 'litellm', 'openrouter', 'claude_platform',
     ]);
   });
 });

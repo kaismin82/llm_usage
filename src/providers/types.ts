@@ -1,6 +1,6 @@
-export type ProviderId = 'claude' | 'chatgpt' | 'zai' | 'poe' | 'litellm' | 'openrouter';
+export type ProviderId = 'claude' | 'chatgpt' | 'zai' | 'poe' | 'litellm' | 'openrouter' | 'claude_platform';
 
-export const PROVIDER_IDS: ProviderId[] = ['claude', 'chatgpt', 'zai', 'poe', 'litellm', 'openrouter'];
+export const PROVIDER_IDS: ProviderId[] = ['claude', 'chatgpt', 'zai', 'poe', 'litellm', 'openrouter', 'claude_platform'];
 
 export type WindowKind =
   | 'session_5h'
@@ -121,6 +121,8 @@ export interface ProviderSettings {
   showFiveHour?: boolean;
   orgId?: string;
   accountId?: string;
+  /** Claude Platform (Anthropic API) monthly spend limit in USD. Default 200; 0 hides the limit. */
+  monthlyLimitUsd?: number;
 }
 
 export interface AppSettings {

@@ -37,7 +37,7 @@ import { requestCustomRefresh } from '../custom/store';
 import { needsRefreshOnOpen } from '../core/refresh-policy';
 
 const SUBSCRIPTION_IDS: ProviderId[] = ['claude', 'chatgpt', 'zai'];
-const COST_IDS: ProviderId[] = ['openrouter', 'litellm', 'poe'];
+const COST_IDS: ProviderId[] = ['openrouter', 'litellm', 'poe', 'claude_platform'];
 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);

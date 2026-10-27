@@ -180,6 +180,7 @@ h1 { font-size: var(--type-heading); line-height: var(--line-heading); letter-sp
 .provider-card { margin-bottom: var(--space-2); }
 .avatar { display: inline-grid; place-items: center; width: var(--avatar); height: var(--avatar); flex: none; border-radius: var(--radius-sm); background: var(--surface-2); color: var(--accent); font-size: var(--type-small); font-weight: var(--bold); }
 .avatar-claude { color: var(--claude); background: var(--claude-bg); }
+.avatar-claude_platform { color: var(--claude); background: var(--claude-bg); }
 .avatar-chatgpt { color: var(--chatgpt); background: var(--chatgpt-bg); }
 .avatar-zai { color: var(--zai); background: var(--zai-bg); }
 .avatar-poe { color: var(--poe); background: var(--poe-bg); }
