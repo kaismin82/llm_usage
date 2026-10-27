@@ -115,6 +115,7 @@ export function PhoneRelay() {
           </div>
           <div class="last-success" role="status" aria-live="polite">
             <p>{status ? `${RESULTS[status.result]}${status.httpStatus ? ` (HTTP ${status.httpStatus})` : ''}` : '전송 기록 없음'}</p>
+            {status?.httpStatus === 401 && <p>릴레이가 쓰기 토큰을 거부했습니다. 읽기 키가 아닌 릴레이의 쓰기 토큰인지 확인하세요.</p>}
             {status?.attemptedAt && <p>마지막 시도: {new Date(status.attemptedAt).toLocaleString('ko-KR')}</p>}
             {status?.lastSuccessAt && <p>마지막 성공: {new Date(status.lastSuccessAt).toLocaleString('ko-KR')}</p>}
             {message && <p>{message}</p>}

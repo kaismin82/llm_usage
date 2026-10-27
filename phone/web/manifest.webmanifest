@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "LLM Usage · Phone",
+  "short_name": "LLM Usage",
+  "description": "PC에서 수집한 LLM 사용량을 읽기 전용으로 확인합니다.",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b0d13",
+  "theme_color": "#0b0d13",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}
