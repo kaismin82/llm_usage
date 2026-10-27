@@ -16,7 +16,7 @@ function deferred<T>() {
 }
 
 function setup() {
-  let config: RelayConfig = { enabled: true, writeToken: 'relay-only-token' };
+  let config: RelayConfig = { enabled: true, writeToken: 'relay-only-token', accountLabel: 'main' };
   const statuses: RelayStatus[] = [];
   const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
   const getPayload = vi.fn(async () => payload);
@@ -76,7 +76,7 @@ describe('isolated relay sender', () => {
 
   it('defaults off and performs no permission, payload or network work while disabled', async () => {
     const env = setup();
-    expect(defaultRelayConfig()).toEqual({ enabled: false, writeToken: '' });
+    expect(defaultRelayConfig()).toEqual({ enabled: false, writeToken: '', accountLabel: 'main' });
     env.setConfig(defaultRelayConfig());
     await env.sender.send();
     expect(env.hasPermission).not.toHaveBeenCalled();
@@ -177,10 +177,10 @@ describe('isolated relay sender', () => {
 
   it('does not send without a token or host permission', async () => {
     const env = setup();
-    env.setConfig({ enabled: true, writeToken: '' });
+    env.setConfig({ enabled: true, writeToken: '', accountLabel: 'main' });
     await env.sender.send();
     expect(env.statuses[0].result).toBe('not_configured');
-    env.setConfig({ enabled: true, writeToken: 'dedicated' });
+    env.setConfig({ enabled: true, writeToken: 'dedicated', accountLabel: 'main' });
     env.hasPermission.mockResolvedValue(false);
     await env.sender.send();
     expect(env.statuses[1].result).toBe('permission_missing');

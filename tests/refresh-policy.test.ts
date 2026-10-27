@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isUserIdle } from '../src/core/idle';
 import { mergeSettings } from '../src/core/settings';
-import { needsRefreshOnOpen, withinCooldown } from '../src/core/refresh-policy';
+import { needsRefreshOnOpen, selectRefreshTargets, withinCooldown } from '../src/core/refresh-policy';
 import { clampInterval } from '../src/options/logic';
 import type { AppSettings } from '../src/providers/types';
 import { baseSnapshot } from '../src/providers/util';
@@ -14,6 +14,22 @@ describe('needsRefreshOnOpen', () => {
     expect(needsRefreshOnOpen(undefined, 10, NOW.getTime())).toBe(true);
     expect(needsRefreshOnOpen(minutesAgo(5), 10, NOW.getTime())).toBe(false);
     expect(needsRefreshOnOpen(minutesAgo(11), 10, NOW.getTime())).toBe(true);
+  });
+});
+
+describe('selectRefreshTargets', () => {
+  const settings = { providers: { claude: { enabled: true }, zai: { enabled: true }, poe: { enabled: false } } };
+  const fresh = { attemptedAt: new Date(NOW.getTime() - 5_000).toISOString() };
+  const old = { attemptedAt: new Date(NOW.getTime() - 61_000).toISOString() };
+
+  it('always refreshes an explicitly requested provider, even inside the cooldown', () => {
+    expect(selectRefreshTargets({ provider: 'claude' }, settings, { claude: fresh }, NOW.getTime()))
+      .toEqual(['claude']);
+  });
+
+  it('keeps the cooldown for whole-set refreshes', () => {
+    expect(selectRefreshTargets({}, settings, { claude: fresh, zai: old }, NOW.getTime()))
+      .toEqual(['zai']);
   });
 });
 

@@ -32,7 +32,7 @@ describe('separate phone relay options', () => {
     const saved = onDom(root, () => root.querySelector<HTMLButtonElement>('[data-action="relay-send"]')?.disabled === false);
     click(root, 'relay-save');
     await saved;
-    expect(env.data[RELAY_CONFIG_KEY]).toEqual({ enabled: true, writeToken: 'relay-only-token' });
+    expect(env.data[RELAY_CONFIG_KEY]).toEqual({ enabled: true, writeToken: 'relay-only-token', accountLabel: 'main' });
     expect(env.data.settings).toEqual(original);
     expect(timezone.value).toBe('UTC');
     expect(mainSave().disabled).toBe(false);

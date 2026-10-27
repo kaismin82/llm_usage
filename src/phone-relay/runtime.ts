@@ -2,6 +2,8 @@ import { getSettings, getSnapshots, STORAGE_KEYS } from '../core/store';
 import { createCustomStore, CUSTOM_PROVIDERS_KEY } from '../custom/store';
 import { buildPhonePayload } from './payload';
 import { createRelaySender } from './sender';
+import { secondaryPoller } from './secondary';
+import { getRelayConfig as readRelayConfig } from './store';
 import {
   getRelayConfig, getRelayStatus, isPhoneRelayMessage,
   RELAY_ALARM, RELAY_CONFIG_KEY, RELAY_ORIGIN, RELAY_STATUS_KEY,
@@ -15,7 +17,8 @@ export function registerPhoneRelay(): void {
       const [settings, snapshots, custom] = await Promise.all([
         getSettings(), getSnapshots(), customStore.getProviders(),
       ]);
-      return buildPhonePayload(settings, snapshots, custom, await customStore.getSnapshots(custom), new Date());
+      const relayConfig = await readRelayConfig();
+      return buildPhonePayload(settings, snapshots, custom, await customStore.getSnapshots(custom), new Date(), relayConfig.accountLabel);
     },
     hasPermission: () => chrome.permissions.contains({ origins: [RELAY_ORIGIN] }),
     recordStatus: async (status) => {
@@ -50,15 +53,20 @@ export function registerPhoneRelay(): void {
     if (RELAY_CONFIG_KEY in changes) {
       sender.invalidate();
       configure();
+      void secondaryPoller.poll();
     } else if (Object.keys(changes).some((key) =>
       key === STORAGE_KEYS.settings || key === STORAGE_KEYS.snapshots ||
       key === CUSTOM_PROVIDERS_KEY || key.startsWith('customSnapshot:'))) {
       if (STORAGE_KEYS.settings in changes || CUSTOM_PROVIDERS_KEY in changes) sender.invalidate();
       void sender.send();
+      void secondaryPoller.poll();
     }
   });
   chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === RELAY_ALARM) void sender.send();
+    if (alarm.name === RELAY_ALARM) {
+      void sender.send();
+      void secondaryPoller.poll();
+    }
   });
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if (!isPhoneRelayMessage(message)) return;

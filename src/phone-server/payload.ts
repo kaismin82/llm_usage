@@ -21,6 +21,8 @@ const grantSchema = z.strictObject({
 export const phonePayloadSchema = z.strictObject({
   version: z.literal(1),
   sentAt: time,
+  // Account label for multi-profile installs; absent means the default 'main' slot.
+  account: text.regex(/^[A-Za-z0-9_-]{1,40}$/).optional(),
   providers: z.array(z.strictObject({
     id: text.min(1), name: text.min(1), status: text,
     fetchedAt: observationTime, attemptedAt: observationTime,

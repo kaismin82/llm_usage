@@ -47,7 +47,7 @@ function httpError(res: HttpResult, now: Date, previous?: ProviderSnapshot): Pro
   const status = statusFromHttp(res);
   if (!status) return null;
   const message = status === 'auth_required'
-    ? 'Admin API 키가 유효하지 않습니다'
+    ? '키가 거부되었습니다(401). 워크스페이스에 묶인 키는 사용량 조회 권한이 없습니다. Console → Settings → API Keys의 조직(기본) 스코프 키 또는 Settings → Admin keys의 Admin 키가 필요합니다'
     : status === 'rate_limited' ? '요청 제한' : `사용량 조회 실패 (HTTP ${res.status})`;
   return errorSnapshot('claude_platform', now, status, message, previous, retryAtFromHeaders(res, now));
 }

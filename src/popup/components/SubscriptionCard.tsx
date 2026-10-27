@@ -22,6 +22,7 @@ interface Props {
   providerId: ProviderId;
   settings: AppSettings;
   now: Date;
+  titleSuffix?: string;
 }
 
 function isStaleData(snapshot: ProviderSnapshot, settings: AppSettings): boolean {
@@ -58,8 +59,8 @@ function WindowRow({ w, warn, crit, now }: { w: UsageWindow; warn: number; crit:
   );
 }
 
-export function SubscriptionCard({ snapshot, providerId, settings, now }: Props) {
-  const label = PROVIDER_LABELS[providerId] ?? providerId;
+export function SubscriptionCard({ snapshot, providerId, settings, now, titleSuffix }: Props) {
+  const label = PROVIDER_LABELS[providerId] + (titleSuffix ?? '');
 
   if (!snapshot) {
     return (

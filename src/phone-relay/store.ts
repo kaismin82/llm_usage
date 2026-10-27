@@ -1,12 +1,18 @@
 import { isRecord } from '../providers/util';
+import type { ProviderSnapshot } from '../providers/types';
 
 export const RELAY_CONFIG_KEY = 'phoneRelayConfig';
 export const RELAY_STATUS_KEY = 'phoneRelayStatus';
 export const RELAY_ORIGIN = 'http://127.0.0.1/*';
 export const RELAY_ENDPOINT = 'http://127.0.0.1:8770/api/ingest';
+export const RELAY_READER_URL = 'http://127.0.0.1:8771/api/snapshot';
+export const SECONDARY_CONFIG_KEY = 'claudeSecondaryConfig';
+export const SECONDARY_SNAPSHOTS_KEY = 'claudeSecondarySnapshots';
 export const RELAY_ALARM = 'phone-relay-heartbeat';
 
-export type RelayConfig = { enabled: boolean; writeToken: string };
+export type RelayConfig = { enabled: boolean; writeToken: string; accountLabel: string };
+export type SecondaryConfig = { enabled: boolean; readToken: string };
+export type SecondarySnapshots = Record<string, ProviderSnapshot>;
 export type RelayStatus = {
   attemptedAt: string;
   lastSuccessAt?: string;
@@ -14,20 +20,52 @@ export type RelayStatus = {
   httpStatus?: number;
 };
 
-export const defaultRelayConfig = (): RelayConfig => ({ enabled: false, writeToken: '' });
+export const defaultRelayConfig = (): RelayConfig => ({ enabled: false, writeToken: '', accountLabel: 'main' });
+export const defaultSecondaryConfig = (): SecondaryConfig => ({ enabled: false, readToken: '' });
 
 export async function getRelayConfig(): Promise<RelayConfig> {
   const value: unknown = (await chrome.storage.local.get(RELAY_CONFIG_KEY))[RELAY_CONFIG_KEY];
   return isRecord(value) ? {
     enabled: value.enabled === true,
     writeToken: typeof value.writeToken === 'string' ? value.writeToken : '',
+    accountLabel: typeof value.accountLabel === 'string' && value.accountLabel ? value.accountLabel : 'main',
   } : defaultRelayConfig();
 }
 
 export async function saveRelayConfig(config: RelayConfig): Promise<void> {
   await chrome.storage.local.set({
-    [RELAY_CONFIG_KEY]: { enabled: config.enabled, writeToken: config.writeToken.trim() },
+    [RELAY_CONFIG_KEY]: { enabled: config.enabled, writeToken: config.writeToken.trim(), accountLabel: config.accountLabel.trim() || 'main' },
   });
+}
+
+export async function getSecondaryConfig(): Promise<SecondaryConfig> {
+  const value: unknown = (await chrome.storage.local.get(SECONDARY_CONFIG_KEY))[SECONDARY_CONFIG_KEY];
+  return isRecord(value) ? {
+    enabled: value.enabled === true,
+    readToken: typeof value.readToken === 'string' ? value.readToken : '',
+  } : defaultSecondaryConfig();
+}
+
+export async function saveSecondaryConfig(config: SecondaryConfig): Promise<void> {
+  await chrome.storage.local.set({
+    [SECONDARY_CONFIG_KEY]: { enabled: config.enabled, readToken: config.readToken.trim() },
+  });
+}
+
+export async function getSecondarySnapshots(): Promise<SecondarySnapshots> {
+  const value: unknown = (await chrome.storage.local.get(SECONDARY_SNAPSHOTS_KEY))[SECONDARY_SNAPSHOTS_KEY];
+  const result: SecondarySnapshots = {};
+  if (!isRecord(value)) return result;
+  for (const [label, snapshot] of Object.entries(value)) {
+    if (isRecord(snapshot) && typeof snapshot.status === 'string' && Array.isArray(snapshot.windows)) {
+      result[label] = snapshot as unknown as ProviderSnapshot;
+    }
+  }
+  return result;
+}
+
+export async function saveSecondarySnapshots(snapshots: SecondarySnapshots): Promise<void> {
+  await chrome.storage.local.set({ [SECONDARY_SNAPSHOTS_KEY]: snapshots });
 }
 
 export async function getRelayStatus(): Promise<RelayStatus | undefined> {

@@ -14,7 +14,7 @@ import { PROVIDER_IDS } from '../providers/types';
 import type { ProviderId } from '../providers/types';
 import { isCustomMessage } from '../custom/config';
 import { registerCustomProviders } from '../custom/runtime';
-import { withinCooldown } from '../core/refresh-policy';
+import { selectRefreshTargets } from '../core/refresh-policy';
 import { configureIdleDetection, isUserIdle, onUserActive } from '../core/idle';
 import { registerPhoneRelay } from '../phone-relay/runtime';
 import { isPhoneRelayMessage } from '../phone-relay/store';
@@ -145,14 +145,8 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
   if (message.type === 'refresh') {
     void (async () => {
       const [settings, snapshots] = await Promise.all([getSettings(), getSnapshots()]);
-      const requested = message.provider !== undefined
-        ? [message.provider]
-        : PROVIDER_IDS.filter((id) => settings.providers[id].enabled);
-      const nowMs = Date.now();
-      await runAll(
-        requested.filter((id) => !withinCooldown(snapshots[id], nowMs)),
-        { force: true },
-      );
+      const targets = selectRefreshTargets(message, settings, snapshots, Date.now());
+      await runAll(targets as ProviderId[], { force: true });
       sendResponse({ ok: true });
     })();
     return true;

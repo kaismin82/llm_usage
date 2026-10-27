@@ -34,6 +34,7 @@ import { CostTable } from './components/CostTable';
 import { CustomProviderCards } from './components/CustomProviderCards';
 import { useCustomData } from '../custom/use-data';
 import { requestCustomRefresh } from '../custom/store';
+import { getSecondarySnapshots, type SecondarySnapshots } from '../phone-relay/store';
 import { needsRefreshOnOpen } from '../core/refresh-policy';
 
 const SUBSCRIPTION_IDS: ProviderId[] = ['claude', 'chatgpt', 'zai'];
@@ -48,12 +49,14 @@ export function App() {
   const refreshedOnOpen = useRef(false);
   const custom = useCustomData();
   const [customRefreshError, setCustomRefreshError] = useState('');
+  const [secondarySnapshots, setSecondarySnapshots] = useState<SecondarySnapshots>({});
 
   const load = useCallback(async () => {
-    const [s, sn, ev] = await Promise.all([getSettings(), getSnapshots(), getEvents()]);
+    const [s, sn, ev, sec] = await Promise.all([getSettings(), getSnapshots(), getEvents(), getSecondarySnapshots()]);
     setSettings(s);
     setSnapshots(sn);
     setEvents(ev);
+    setSecondarySnapshots(sec);
   }, []);
 
   useEffect(() => {
@@ -165,6 +168,16 @@ export function App() {
               providerId={id}
               settings={settings}
               now={now}
+            />
+          ))}
+          {Object.entries(secondarySnapshots).map(([label, snapshot]) => (
+            <SubscriptionCard
+              key={`claude#${label}`}
+              snapshot={snapshot}
+              providerId="claude"
+              settings={settings}
+              now={now}
+              titleSuffix={` · ${label}`}
             />
           ))}
         </section>

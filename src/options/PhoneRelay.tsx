@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { onStoreChange } from '../core/store';
 import {
   defaultRelayConfig, getRelayConfig, getRelayStatus, saveRelayConfig,
+  defaultSecondaryConfig, getSecondaryConfig, saveSecondaryConfig,
   RELAY_ENDPOINT, RELAY_ORIGIN, type RelayStatus,
 } from '../phone-relay/store';
 
@@ -12,6 +13,8 @@ const RESULTS = {
 
 export function PhoneRelay() {
   const [config, setConfig] = useState(defaultRelayConfig);
+  const [secondary, setSecondary] = useState(defaultSecondaryConfig);
+  const [secondaryDirty, setSecondaryDirty] = useState(false);
   const [status, setStatus] = useState<RelayStatus>();
   const [dirty, setDirty] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -24,9 +27,10 @@ export function PhoneRelay() {
     let mounted = true;
     const load = async () => {
       try {
-        const [saved, latest] = await Promise.all([getRelayConfig(), getRelayStatus()]);
+        const [saved, latest, savedSecondary] = await Promise.all([getRelayConfig(), getRelayStatus(), getSecondaryConfig()]);
         if (!mounted) return;
         if (!dirtyRef.current) setConfig(saved);
+        if (!secondaryDirty) setSecondary(savedSecondary);
         setStatus(latest);
         setLoaded(true);
       } catch {
@@ -53,6 +57,19 @@ export function PhoneRelay() {
           return;
         }
       }
+      if (secondary.enabled && !secondary.readToken.trim()) {
+        setMessage('보조 계정의 릴레이 읽기 토큰을 입력하세요');
+        return;
+      }
+      if (secondary.enabled) {
+        const granted = await chrome.permissions.request({ origins: [RELAY_ORIGIN] });
+        if (!granted) {
+          setMessage('로컬 연결 권한이 거부되었습니다');
+          return;
+        }
+      }
+      await saveSecondaryConfig(secondary);
+      setSecondaryDirty(false);
       await saveRelayConfig(config);
       setDirty(false);
       setMessage('동기화 설정을 저장했습니다');
@@ -95,6 +112,17 @@ export function PhoneRelay() {
           </label>
           <p class="note">기본 꺼짐. 저장된 사용량만 로컬 릴레이로 전송합니다. 수집 주기와 절전 동작은 바뀌지 않습니다.</p>
           <label class="field">
+            <span class="field-label">계정 라벨 (기본 main · 다른 프로필의 확장은 다른 라벨)</span>
+            <input class="input" type="text" name="phoneRelayAccountLabel" autoComplete="off"
+              value={config.accountLabel}
+              disabled={!loaded || busy}
+              onInput={(event) => {
+                const accountLabel = event.currentTarget.value;
+                setConfig((previous) => ({ ...previous, accountLabel }));
+                setDirty(true);
+              }} />
+          </label>
+          <label class="field">
             <span class="field-label">릴레이 쓰기 토큰 (프로바이더 API 키 아님)</span>
             <input class="input" type="password" name="phoneRelayWriteToken" autoComplete="off"
               value={config.writeToken} disabled={!loaded || busy}
@@ -105,6 +133,28 @@ export function PhoneRelay() {
               }} />
           </label>
           <p class="last-success phone-relay-endpoint">{RELAY_ENDPOINT}</p>
+          <label class="toggle-label">
+            <input class="toggle" type="checkbox" name="claudeSecondaryEnabled" checked={secondary.enabled}
+              disabled={!loaded || busy}
+              onChange={(event) => {
+                const enabled = event.currentTarget.checked;
+                setSecondary((previous) => ({ ...previous, enabled }));
+                setSecondaryDirty(true);
+              }} />
+            <span class="toggle-slider" />
+            <span class="provider-name">보조 Claude 계정 표시 (릴레이에서 읽기)</span>
+          </label>
+          <p class="note">릴레이의 읽기 토큰(credentials.json의 readToken)으로 다른 프로필이 올린 Claude 카드를 이 프로필의 패널에 함께 표시합니다. 계정 라벨이 다른 프로필의 것과 겹치지 않아야 합니다.</p>
+          <label class="field">
+            <span class="field-label">릴레이 읽기 토큰 (readToken)</span>
+            <input class="input" type="password" name="claudeSecondaryReadToken" autoComplete="off"
+              value={secondary.readToken} disabled={!loaded || busy}
+              onInput={(event) => {
+                const readToken = event.currentTarget.value;
+                setSecondary((previous) => ({ ...previous, readToken }));
+                setSecondaryDirty(true);
+              }} />
+          </label>
           <div class="card-actions">
             <button class="btn btn-test" data-action="relay-save" disabled={!loaded || !dirty || busy} onClick={() => void save()}>
               동기화 설정 저장

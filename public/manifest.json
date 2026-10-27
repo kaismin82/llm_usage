@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "LLM Usage Glance",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Shows your own LLM subscription limits and API spend (Claude, ChatGPT, Z.ai, Poe, LiteLLM, OpenRouter) in one popup.",
   "minimum_chrome_version": "116",
   "permissions": ["storage", "alarms", "scripting", "idle", "sidePanel"],

@@ -467,6 +467,16 @@ export function App() {
               Claude Platform(Anthropic API) 조직의 사용액입니다. claude.ai 구독 계정의 Extra usage와는
               별개이며 합산되지 않습니다. 한도는 매월 1일(UTC)에 초기화되고 이월되지 않습니다. 0으로 두면 한도 없이 사용량만 표시합니다.
             </p>
+            {(ps.apiKey ?? '').startsWith('sk-ant-admin') && (
+              <p class="warning">Admin 키(sk-ant-admin)로 설정되었습니다. Console의 Settings → Admin keys에서 발급한 키입니다.</p>
+            )}
+            {(ps.apiKey ?? '').startsWith('sk-ant-api') && (
+              <p class="warning">
+                일반 API 키(sk-ant-api)는 워크스페이스에 묶이지 않은 개인(조직) 키일 때만 사용량 조회가 됩니다.
+                워크스페이스 키면 401로 거부됩니다. 확실한 방법은 Console → Settings → Admin keys에서 만드는
+                Admin 키입니다(조직 admin 권한 필요, 조직 없는 개인 계정은 발급 불가).
+              </p>
+            )}
           </div>
         );
       case 'openrouter':

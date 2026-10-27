@@ -65,6 +65,7 @@ export function buildPhonePayload(
   custom: readonly CustomProviderConfig[],
   customSnapshots: Record<string, CustomSnapshot>,
   now: Date,
+  accountLabel = 'main',
 ): PhonePayload {
   const providers: PhonePayload['providers'] = [];
   for (const id of PROVIDER_IDS) {
@@ -75,5 +76,5 @@ export function buildPhonePayload(
     const snapshot = customSnapshots[config.id];
     if (config.enabled && snapshot) providers.push(phoneProvider(config.id, config.name, snapshot));
   }
-  return { version: 1, sentAt: now.toISOString(), providers };
+  return { version: 1, sentAt: now.toISOString(), ...(accountLabel !== 'main' ? { account: accountLabel } : {}), providers };
 }

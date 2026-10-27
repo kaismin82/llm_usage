@@ -24,9 +24,11 @@ try {
 }
 const hostList: string = process.env['LLM_PHONE_HOSTS'] ?? '';
 const hosts = hostList.split(',').map((host) => host.trim().toLowerCase()).filter(Boolean);
+const accountDir = join(stateDir, 'accounts');
+await mkdir(accountDir, { recursive: true, mode: 0o700 });
 const { reader, writer } = await createPhoneRelay({
   ...credentials, webRoot: join(root, 'phone', 'web'),
-  snapshotPath: join(stateDir, 'snapshot.json'), readerHosts: hosts,
+  snapshotPath: join(stateDir, 'snapshot.json'), accountDir, readerHosts: hosts,
 });
 writer.once('error', (error) => { console.error('Ingest listener:', error.message); process.exit(1); });
 reader.once('error', (error) => { console.error('Reader listener:', error.message); process.exit(1); });

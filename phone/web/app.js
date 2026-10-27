@@ -17,6 +17,7 @@
   };
   const GRANT_STATUS = { available: '사용 가능', paused: '일시 중지', not_yet: '시작 전', used: '사용됨', expired: '만료됨', unknown: '상태 알 수 없음' };
   const GRANT_SCOPE = { session_5h: '5시간', weekly_7d: '7일', all: '전체', unknown: '범위 미제공' };
+  const baseId = (id) => String(id).split('#')[0];
   const $ = (id) => document.getElementById(id);
   const number = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 8 });
   let token = '';
@@ -237,8 +238,8 @@
     const card = element('article', 'card provider-card compact' + (stale ? ' is-stale' : ''));
     card.dataset.providerId = provider.id;
     const head = element('div', 'card-head');
-    const known = BUILTINS.includes(provider.id);
-    const avatar = element('span', 'avatar' + (known ? ' avatar-' + provider.id : ''), known ? LETTERS[provider.id] : Array.from(provider.name)[0] || '?');
+    const known = BUILTINS.includes(baseId(provider.id));
+    const avatar = element('span', 'avatar' + (known ? ' avatar-' + baseId(provider.id) : ''), known ? LETTERS[baseId(provider.id)] : Array.from(provider.name)[0] || '?');
     avatar.setAttribute('aria-hidden', 'true');
     head.append(avatar, element('h3', 'provider-name', provider.name));
     if (provider.status !== 'ok') head.append(element('span', 'chip ' + (provider.status === 'error' ? 'chip-error' : 'chip-warn'), STATUS[provider.status] ?? provider.status));
@@ -277,7 +278,7 @@
       row.dataset.providerId = provider.id;
       if (provider.status !== 'ok' || old(provider.fetchedAt)) row.classList.add('is-stale');
       const name = element('span', 'cost-name');
-      const avatar = element('span', 'avatar avatar-' + provider.id, LETTERS[provider.id]);
+      const avatar = element('span', 'avatar avatar-' + baseId(provider.id), LETTERS[baseId(provider.id)]);
       avatar.setAttribute('aria-hidden', 'true');
       const label = element('span', 'cost-title');
       label.append(element('span', '', provider.name));
@@ -341,10 +342,10 @@
     $('empty-title').textContent = snapshot.data ? '표시할 제공업체가 없습니다.' : '첫 PC 전송을 기다리고 있어요.';
     $('empty-message').textContent = snapshot.data ? 'PC 확장 프로그램에서 사용할 제공업체를 활성화하세요. 이 화면에서는 계정을 설정하지 않습니다.' : '연결은 완료됐습니다. PC 확장 프로그램의 휴대폰 동기화를 켜면 수집된 사용량이 여기에 표시됩니다.';
     const cards = [
-      ...providers.filter((provider) => SUBSCRIPTIONS.includes(provider.id)),
-      ...providers.filter((provider) => !BUILTINS.includes(provider.id)),
+      ...providers.filter((provider) => SUBSCRIPTIONS.includes(baseId(provider.id))),
+      ...providers.filter((provider) => !BUILTINS.includes(baseId(provider.id))),
     ];
-    const costs = COSTS.map((id) => providers.find((provider) => provider.id === id)).filter(Boolean);
+    const costs = COSTS.map((id) => providers.find((provider) => baseId(provider.id) === id)).filter(Boolean);
     const fragment = document.createDocumentFragment();
     cards.forEach((provider) => fragment.append(providerCard(provider)));
     if (costs.length) fragment.append(costTable(costs));

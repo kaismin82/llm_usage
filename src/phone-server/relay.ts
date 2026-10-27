@@ -1,10 +1,13 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { readFile, writeFile, rename } from 'node:fs/promises';
-import { join } from 'node:path';
+import { readFile, writeFile, rename, readdir, mkdir } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
 import { timingSafeEqual } from 'node:crypto';
 import { phonePayloadSchema, receiptSchema, type PhoneReceipt } from './payload';
 
 const MAX_BODY = 256 * 1024;
+const MAIN = 'main';
+const ACCOUNT_RE = /^[A-Za-z0-9_-]{1,40}$/;
+const EXTENSION_ORIGIN_RE = /^chrome-extension:\/\/[a-p]{32}$/;
 const assets = new Map([
   ['/', ['index.html', 'text/html; charset=utf-8']],
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
@@ -21,6 +24,7 @@ type RelayOptions = {
   readonly webRoot: string;
   readonly snapshotPath: string;
   readonly readerHosts: readonly string[];
+  readonly accountDir?: string;
   readonly now?: () => Date;
 };
 
@@ -53,19 +57,74 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function applyCors(req: IncomingMessage, res: ServerResponse): void {
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && EXTENSION_ORIGIN_RE.test(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  }
+}
+
+// Multi-account merge: entries from labeled (non-main) slots are exposed with
+// `<id>#<label>` and a display-name suffix so the merged payload keeps unique ids.
+function mergedReceipt(slots: Map<string, PhoneReceipt>): PhoneReceipt | null {
+  if (slots.size === 0) return null;
+  const labels = [...slots.keys()].sort((a, b) => (a === MAIN ? -1 : b === MAIN ? 1 : a.localeCompare(b)));
+  const providers: PhoneReceipt['data']['providers'] = [];
+  let receivedAt = '';
+  let sentAt = '';
+  for (const label of labels) {
+    const receipt = slots.get(label);
+    if (!receipt) continue;
+    if (receipt.receivedAt > receivedAt) receivedAt = receipt.receivedAt;
+    if (receipt.data.sentAt > sentAt) sentAt = receipt.data.sentAt;
+    for (const provider of receipt.data.providers) {
+      providers.push(label === MAIN ? provider : { ...provider, id: `${provider.id}#${label}`, name: `${provider.name} · ${label}` });
+    }
+  }
+  return { receivedAt, data: { version: 1, sentAt, providers } };
+}
+
 export async function createPhoneRelay(options: RelayOptions) {
   if (options.readToken.length < 32 || options.writeToken.length < 32 ||
       options.readToken === options.writeToken) {
     throw new Error('Relay requires distinct read/write credentials of at least 32 characters.');
   }
-  let receipt: PhoneReceipt | null = null;
+  const accountDir = options.accountDir ?? join(dirname(options.snapshotPath), 'accounts');
+  await mkdir(accountDir, { recursive: true });
+  const slots = new Map<string, PhoneReceipt>();
   try {
-    receipt = receiptSchema.parse(JSON.parse(await readFile(options.snapshotPath, 'utf8')));
+    for (const file of (await readdir(accountDir)).filter((name) => name.endsWith('.json')).sort()) {
+      const parsed = receiptSchema.safeParse(JSON.parse(await readFile(join(accountDir, file), 'utf8')));
+      if (parsed.success) slots.set(file.slice(0, -'.json'.length), parsed.data);
+    }
   } catch (error) {
     if (!missingFile(error)) throw error;
   }
+  if (slots.size === 0) {
+    // Migrate a pre-multi-account snapshot file into the main slot.
+    try {
+      const legacy = receiptSchema.parse(JSON.parse(await readFile(options.snapshotPath, 'utf8')));
+      slots.set(MAIN, legacy);
+      await persistSlot(MAIN, legacy);
+    } catch (error) {
+      if (!missingFile(error)) throw error;
+    }
+  }
   let writing = false;
   const now = options.now ?? (() => new Date());
+
+  async function persistSlot(label: string, receipt: PhoneReceipt): Promise<void> {
+    await writeFile(join(accountDir, `${label}.json`), JSON.stringify(receipt), { mode: 0o600 });
+  }
+  async function persistMerged(): Promise<void> {
+    const merged = mergedReceipt(slots);
+    if (!merged) return;
+    await writeFile(`${options.snapshotPath}.tmp`, JSON.stringify(merged), { mode: 0o600 });
+    await rename(`${options.snapshotPath}.tmp`, options.snapshotPath);
+  }
 
   const handler = (mode: 'reader' | 'writer') => async (req: IncomingMessage, res: ServerResponse) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -73,6 +132,12 @@ export async function createPhoneRelay(options: RelayOptions) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Content-Security-Policy', CSP);
     res.setHeader('X-Frame-Options', 'DENY');
+    applyCors(req, res);
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
     try {
       const url = new URL(req.url ?? '/', 'http://127.0.0.1');
       const host = new URL(`http://${req.headers.host ?? ''}`).hostname.toLowerCase();
@@ -84,7 +149,7 @@ export async function createPhoneRelay(options: RelayOptions) {
         if (url.pathname !== '/api/ingest') { reply(res, 404, { error: 'not_found' }); return; }
         if (req.method !== 'POST') { reply(res, 405, { error: 'method_not_allowed' }); return; }
         const origin = req.headers.origin;
-        if (origin && !/^chrome-extension:\/\/[a-p]{32}$/.test(origin)) {
+        if (origin && !EXTENSION_ORIGIN_RE.test(origin)) {
           reply(res, 403, { error: 'origin_not_allowed' }); return;
         }
         if (!matchesToken(req.headers.authorization, options.writeToken)) {
@@ -98,13 +163,15 @@ export async function createPhoneRelay(options: RelayOptions) {
         }
         const parsed = phonePayloadSchema.safeParse(JSON.parse(await readBody(req)));
         if (!parsed.success) { reply(res, 400, { error: 'invalid_payload' }); return; }
+        const label = parsed.data.account ?? MAIN;
+        if (!ACCOUNT_RE.test(label)) { reply(res, 400, { error: 'invalid_account' }); return; }
         if (writing) { reply(res, 409, { error: 'write_in_progress' }); return; }
         writing = true;
         try {
-          const next = { receivedAt: now().toISOString(), data: parsed.data };
-          await writeFile(`${options.snapshotPath}.tmp`, JSON.stringify(next), { mode: 0o600 });
-          await rename(`${options.snapshotPath}.tmp`, options.snapshotPath);
-          receipt = next;
+          const next: PhoneReceipt = { receivedAt: now().toISOString(), data: parsed.data };
+          slots.set(label, next);
+          await persistSlot(label, next);
+          await persistMerged();
         } finally {
           writing = false;
         }
@@ -117,7 +184,7 @@ export async function createPhoneRelay(options: RelayOptions) {
         if (!matchesToken(req.headers.authorization, options.readToken)) {
           reply(res, 401, { error: 'unauthorized' }); return;
         }
-        reply(res, 200, receipt ?? { receivedAt: null, data: null }); return;
+        reply(res, 200, mergedReceipt(slots) ?? { receivedAt: null, data: null }); return;
       }
       const asset = assets.get(url.pathname);
       if (!asset) { reply(res, 404, { error: 'not_found' }); return; }

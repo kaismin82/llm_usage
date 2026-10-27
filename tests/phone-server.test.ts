@@ -129,6 +129,41 @@ describe('phone relay HTTP boundary', () => {
     expect(response.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
     expect(response.headers.get('access-control-allow-origin')).toBeNull();
   });
+  it('stores labeled accounts in separate slots and merges suffixed ids for readers', async () => {
+    expect((await ingest(payload)).status).toBe(200);
+    const labeled = { ...payload, account: 'sub2', providers: [payload.providers[0]] };
+    expect((await ingest(labeled)).status).toBe(200);
+    const response = await fetch(readerUrl + '/api/snapshot', { headers: { Authorization: 'Bearer ' + readToken } });
+    const merged = await response.json();
+    const ids = merged.data.providers.map((provider: { id: string }) => provider.id);
+    expect(ids).toContain('chatgpt');
+    expect(ids).toContain('chatgpt#sub2');
+    const suffixed = merged.data.providers.find((provider: { id: string; name: string }) => provider.id === 'chatgpt#sub2');
+    expect(suffixed.name).toBe('ChatGPT · sub2');
+    expect(await readFile(join(directory, 'accounts', 'main.json'), 'utf8')).toContain('ChatGPT');
+    expect(await readFile(join(directory, 'accounts', 'sub2.json'), 'utf8')).toContain('sub2');
+  });
+
+  it('answers extension-origin CORS preflights without credentials', async () => {
+    const origin = 'chrome-extension://' + 'a'.repeat(32);
+    const preflight = await fetch(readerUrl + '/api/snapshot', {
+      method: 'OPTIONS',
+      headers: { Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' },
+    });
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get('access-control-allow-origin')).toBe(origin);
+    expect(preflight.headers.get('access-control-allow-headers')).toContain('Authorization');
+  });
+
+  it('does not grant CORS to non-extension origins', async () => {
+    const response = await fetch(readerUrl + '/api/snapshot', { headers: { Origin: 'https://untrusted.example' } });
+    expect(response.status).toBe(401);
+    expect(response.headers.get('access-control-allow-origin')).toBeNull();
+  });
+
+  it('rejects malformed account labels', async () => {
+    expect((await ingest({ ...payload, account: 'bad label!' })).status).toBe(400);
+  });
   it('rejects duplicate provider IDs', () => {
     expect(phonePayloadSchema.safeParse({ ...payload, providers: [...payload.providers, ...payload.providers] }).success).toBe(false);
   });
