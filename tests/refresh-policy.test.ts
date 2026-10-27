@@ -27,10 +27,11 @@ describe('withinCooldown', () => {
 
 describe('litellm interval floor', () => {
   it('raises stored litellm intervals to the floor and leaves other providers alone', () => {
-    const stored = { providers: { litellm: { enabled: true, intervalMin: 1 }, claude: { enabled: true, intervalMin: 1 } } } as unknown as Partial<AppSettings>;
+    const stored = { providers: { litellm: { enabled: true, intervalMin: 1 }, claude: { enabled: true, intervalMin: 1 }, zai: { enabled: true, intervalMin: 1 } } } as unknown as Partial<AppSettings>;
     const merged = mergeSettings(stored);
     expect(merged.providers.litellm.intervalMin).toBe(10);
-    expect(merged.providers.claude.intervalMin).toBe(1);
+    expect(merged.providers.claude.intervalMin).toBe(5);
+    expect(merged.providers.zai.intervalMin).toBe(1);
     expect(mergeSettings(undefined).providers.litellm.intervalMin).toBe(15);
   });
 

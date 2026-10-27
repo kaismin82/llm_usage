@@ -142,7 +142,7 @@ describe('dueProviders', () => {
   const settings = settingsFor(['claude', 'poe']);
 
   it('treats a missing state entry as due', () => {
-    expect(dueProviders(settings, { poe: { nextDueAt: FUTURE, failures: 0 } }, NOW)).toEqual(['claude']);
+    expect(dueProviders(settings, { poe: { nextDueAt: FUTURE, failures: 0 } }, {}, NOW)).toEqual(['claude']);
   });
 
   it('treats nextDueAt at or before now as due', () => {
@@ -150,21 +150,33 @@ describe('dueProviders', () => {
       claude: { nextDueAt: NOW.toISOString(), failures: 0 },
       poe: { nextDueAt: new Date(NOW.getTime() - 1).toISOString(), failures: 2 },
     };
-    expect(dueProviders(settings, state, NOW)).toEqual(['claude', 'poe']);
+    expect(dueProviders(settings, state, {}, NOW)).toEqual(['claude', 'poe']);
   });
 
   it('treats a future nextDueAt as not due', () => {
     const state: ScheduleState = { claude: { nextDueAt: FUTURE, failures: 0 } };
-    expect(dueProviders(settings, state, NOW)).toEqual(['poe']);
+    expect(dueProviders(settings, state, {}, NOW)).toEqual(['poe']);
   });
 
   it('treats null nextDueAt as paused, not due', () => {
     const state: ScheduleState = { claude: { nextDueAt: null, failures: 0 } };
-    expect(dueProviders(settings, state, NOW)).toEqual(['poe']);
+    expect(dueProviders(settings, state, {}, NOW)).toEqual(['poe']);
   });
 
   it('ignores disabled providers even without a state entry', () => {
-    expect(dueProviders(settingsFor(['claude']), {}, NOW)).toEqual(['claude']);
+    expect(dueProviders(settingsFor(['claude']), {}, {}, NOW)).toEqual(['claude']);
+  });
+
+  it('paces a stale nextDueAt on the last successful fetch', () => {
+    const state: ScheduleState = { claude: { nextDueAt: NOW.toISOString(), failures: 0 } };
+    const fresh: SnapshotMap = { claude: baseSnapshot('claude', NOW) };
+    // intervalMin 3 with a snapshot fetched at NOW: not due yet even though
+    // nextDueAt is now.
+    expect(dueProviders(settings, state, fresh, NOW)).toEqual(['poe']);
+    const older: SnapshotMap = {
+      claude: baseSnapshot('claude', new Date(NOW.getTime() - 3 * 60_000)),
+    };
+    expect(dueProviders(settings, state, older, NOW)).toEqual(['claude', 'poe']);
   });
 });
 
@@ -376,7 +388,10 @@ describe('runProviders', () => {
     });
     await runProviders(['claude'], deps);
     expect(deps.states).toHaveLength(1);
-    expect(deps.states[0].poe).toEqual({ nextDueAt: FUTURE, failures: 0 });
+    // Only the settled provider is persisted; untouched entries stay in
+    // storage via setState's merge instead of being re-written stale.
+    expect(Object.keys(deps.states[0])).toEqual(['claude']);
+    expect(deps.states[0].poe).toBeUndefined();
     expect(deps.presents).toHaveLength(1);
     expect(deps.presents[0].snapshots.claude).toBe(next);
     expect(deps.presents[0].snapshots.poe).toBe(existing);

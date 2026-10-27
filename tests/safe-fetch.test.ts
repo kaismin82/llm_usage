@@ -37,130 +37,62 @@ describe('createSafeFetch', () => {
     );
   });
 
-  it('uses the tab fallback only for supported challenge hosts', async () => {
-    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue(null) };
-    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
-      async () => new Response('Just a moment...', { status: 503 }),
-    );
-    const get = createSafeFetch({ fetchImpl, tabBridge });
-
-    await get('https://claude.ai/api/organizations');
-    await get('https://api.poe.com/usage/current_balance');
-
-    expect(tabBridge.fetchViaTab).toHaveBeenCalledTimes(1);
-    expect(tabBridge.fetchViaTab).toHaveBeenCalledWith('https://claude.ai/api/organizations', {
-      timeoutMs: expect.any(Number),
-    });
-  });
-
-  it('returns a non-null tab fallback result', async () => {
-    const fallback = {
-      status: 200,
-      headers: {},
-      text: '{"ok":true}',
-      json: { ok: true },
-      challenge: false,
-    };
-    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue(fallback) };
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('Just a moment...', { status: 403 }));
-    const get = createSafeFetch({ fetchImpl, tabBridge });
-
-    await expect(get('https://chatgpt.com/api/auth/session')).resolves.toBe(fallback);
-  });
+  const OK = { status: 200, headers: {}, text: '{"ok":true}', json: { ok: true }, challenge: false };
 
   it.each([
-    ['https://claude.ai/api/organizations', 401],
-    ['https://claude.ai/api/organizations', 403],
-    ['https://chatgpt.com/api/auth/session', 401],
-    ['https://chatgpt.com/api/auth/session', 403],
-  ] as const)('recovers a credentialed %s HTTP %s through the signed-in tab', async (url, status) => {
-    // Given
-    const fallback = { status: 200, headers: {}, text: '[]', json: [], challenge: false };
-    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue(fallback) };
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status }));
+    'https://claude.ai/api/organizations',
+    'https://chatgpt.com/api/auth/session',
+  ])('sends cookie-carrying %s requests only through the signed-in tab', async (url) => {
+    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue(OK) };
+    const fetchImpl = vi.fn<typeof fetch>();
     const get = createSafeFetch({ fetchImpl, tabBridge });
 
-    // When
-    const result = await get(url, { credentials: 'include' });
+    await expect(get(url, { credentials: 'include' })).resolves.toBe(OK);
 
-    // Then
-    expect(result).toBe(fallback);
-    expect(tabBridge.fetchViaTab).toHaveBeenCalledOnce();
+    expect(tabBridge.fetchViaTab).toHaveBeenCalledWith(url, { credentials: 'include', timeoutMs: expect.any(Number) });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it('retains the original auth failure when a tab cannot provide a usable response', async () => {
-    // Given
-    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue({
-      status: 500, headers: {}, text: '', json: undefined, challenge: false,
-    }) };
-    const get = createSafeFetch({
-      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 401 })),
-      tabBridge,
-    });
+  it('never falls back to a service-worker request when no signed-in tab exists', async () => {
+    const fetchImpl = vi.fn<typeof fetch>();
+    const withoutTab = createSafeFetch({ fetchImpl, tabBridge: { fetchViaTab: vi.fn().mockResolvedValue(null) } });
+    const withoutBridge = createSafeFetch({ fetchImpl });
 
-    // When
+    await expect(withoutTab('https://claude.ai/api/organizations', { credentials: 'include' }))
+      .rejects.toMatchObject({ name: 'NoSessionTab' });
+    await expect(withoutBridge('https://chatgpt.com/api/auth/session', { credentials: 'include' }))
+      .rejects.toMatchObject({ name: 'NoSessionTab' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('does not mistake a tab login page for successful JSON authentication', async () => {
+    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue({
+      status: 200, headers: {}, text: '<html>Sign in</html>', json: undefined, challenge: false,
+    }) };
+    const get = createSafeFetch({ fetchImpl: vi.fn<typeof fetch>(), tabBridge });
+
     const result = await get('https://claude.ai/api/organizations', { credentials: 'include' });
 
-    // Then
     expect(result.status).toBe(401);
-    expect(tabBridge.fetchViaTab).toHaveBeenCalledOnce();
   });
 
-  it('does not use session auth recovery for omitted credentials or API-key providers', async () => {
-    // Given
+  it('passes a tab challenge or auth failure through unchanged', async () => {
+    const challenge = { status: 403, headers: {}, text: 'Just a moment...', json: undefined, challenge: true };
+    const get = createSafeFetch({ tabBridge: { fetchViaTab: vi.fn().mockResolvedValue(challenge) } });
+
+    await expect(get('https://claude.ai/api/organizations', { credentials: 'include' })).resolves.toBe(challenge);
+  });
+
+  it('never attaches credentials to other requests and never uses the tab for them', async () => {
     const tabBridge = { fetchViaTab: vi.fn() };
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () => new Response('{}', { status: 401 }));
     const get = createSafeFetch({ fetchImpl, tabBridge });
 
-    // When
     await get('https://claude.ai/api/organizations');
     await get('https://api.poe.com/usage/current_balance', { credentials: 'include' });
 
-    // Then
     expect(tabBridge.fetchViaTab).not.toHaveBeenCalled();
-  });
-
-  it('does not mistake a tab login page for successful JSON authentication', async () => {
-    // Given
-    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue({
-      status: 200, headers: {}, text: '<html>Sign in</html>', json: undefined, challenge: false,
-    }) };
-    const get = createSafeFetch({
-      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(new Response('{}', { status: 401 })),
-      tabBridge,
-    });
-
-    // When
-    const result = await get('https://claude.ai/api/organizations', { credentials: 'include' });
-
-    // Then
-    expect(result.status).toBe(401);
-  });
-
-  it('passes only the remaining request budget to tab recovery', async () => {
-    // Given
-    let time = 1000;
-    const clock = vi.spyOn(Date, 'now').mockImplementation(() => time);
-    const tabBridge = { fetchViaTab: vi.fn().mockResolvedValue(null) };
-    const get = createSafeFetch({
-      defaultTimeoutMs: 1000,
-      fetchImpl: vi.fn<typeof fetch>().mockImplementation(async () => {
-        time = 1200;
-        return new Response('{}', { status: 401 });
-      }),
-      tabBridge,
-    });
-    try {
-      // When
-      await get('https://claude.ai/api/organizations', { credentials: 'include' });
-
-      // Then
-      expect(tabBridge.fetchViaTab).toHaveBeenCalledWith('https://claude.ai/api/organizations', {
-        credentials: 'include', timeoutMs: 800,
-      });
-    } finally {
-      clock.mockRestore();
-    }
+    for (const call of fetchImpl.mock.calls) expect(call[1]).toMatchObject({ credentials: 'omit' });
   });
 
   it('names network and timeout failures', async () => {

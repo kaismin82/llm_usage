@@ -14,7 +14,7 @@ function installWorker() {
   const event = () => ({ addListener: vi.fn() });
   vi.stubGlobal('fetch', wire);
   vi.stubGlobal('chrome', {
-    storage: { local: {
+    storage: { onChanged: event(), local: {
       get: async (key: string) => { reads.push(key); return { [key]: structuredClone(data[key]) }; },
       set: async (items: Record<string, unknown>) => { Object.assign(data, structuredClone(items)); },
       remove: async (key: string) => { delete data[key]; },
@@ -64,5 +64,15 @@ describe('custom background message isolation', () => {
     expect(reply).toEqual({ ok: true });
     expect(env.wire).not.toHaveBeenCalled();
     expect(env.data[customSnapshotKey(customConfig.id)]).toBeUndefined();
+  });
+
+  it('does not interpret a relay send as a built-in settings change', async () => {
+    const env = installWorker();
+    await import('../src/background/index');
+    const reply = await env.dispatch({ type: 'phone-relay-send' });
+    expect(reply).toEqual({ ok: true });
+    expect(env.reads).not.toContain('settings');
+    expect(env.wire).not.toHaveBeenCalled();
+    expect(env.data.schedule).toBeUndefined();
   });
 });

@@ -15,18 +15,32 @@ function namedError(name: string): Error {
   return error;
 }
 
+// Cookie-carrying requests to these hosts must originate from a signed-in page
+// of the same site. A service-worker request with the user's session cookies
+// looks like a bot to the site's WAF and can rotate or invalidate the session.
+const SESSION_HOSTS = new Set(['claude.ai', 'chatgpt.com']);
+
 export function createSafeFetch(opts: SafeFetchOptions = {}): ProviderContext['get'] {
   return async (url, init = {}) => {
     const allowedUrl = assertAllowed(url, 'GET');
     const timeoutMs = init.timeoutMs ?? opts.defaultTimeoutMs ?? 15_000;
-    const startedAt = Date.now();
+
+    if (init.credentials === 'include' && SESSION_HOSTS.has(allowedUrl.hostname)) {
+      const viaTab = opts.tabBridge ? await opts.tabBridge.fetchViaTab(url, { ...init, timeoutMs }) : null;
+      if (!viaTab) throw namedError('NoSessionTab');
+      // A 2xx non-JSON body is a sign-in page, not usage data.
+      if (viaTab.status >= 200 && viaTab.status < 300 && viaTab.json === undefined && !viaTab.challenge) {
+        return { ...viaTab, status: 401 };
+      }
+      return viaTab;
+    }
+
     const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
-
     try {
       response = await (opts.fetchImpl ?? fetch)(url, {
         method: 'GET',
-        credentials: init.credentials ?? 'omit',
+        credentials: 'omit',
         headers: init.headers,
         signal,
         redirect: 'follow',
@@ -35,26 +49,6 @@ export function createSafeFetch(opts: SafeFetchOptions = {}): ProviderContext['g
     } catch {
       throw signal.aborted ? namedError('TimeoutError') : namedError('NetworkError');
     }
-
-    const result = buildHttpResult(response.status, headersToRecord(response.headers), await response.text());
-    const sessionAuthFailure = init.credentials === 'include' && (result.status === 401 || result.status === 403);
-    if (
-      (result.challenge || sessionAuthFailure) &&
-      (allowedUrl.hostname === 'claude.ai' || allowedUrl.hostname === 'chatgpt.com') &&
-      opts.tabBridge
-    ) {
-      const remainingMs = timeoutMs - (Date.now() - startedAt);
-      if (remainingMs > 0) {
-        const fallback = await opts.tabBridge.fetchViaTab(url, { ...init, timeoutMs: remainingMs });
-        if (fallback && (
-          fallback.challenge ||
-          (fallback.status >= 200 && fallback.status < 300 && fallback.json !== undefined) ||
-          (result.challenge && fallback.status === 401)
-        )) {
-          return fallback;
-        }
-      }
-    }
-    return result;
+    return buildHttpResult(response.status, headersToRecord(response.headers), await response.text());
   };
 }

@@ -34,8 +34,11 @@ export function nextAttemptAt(
       const backoffAt = now.getTime() + Math.min(backoffDelayMs(failures), 3_600_000);
       return new Date(Number.isNaN(retryAt) ? backoffAt : Math.max(retryAt, backoffAt));
     }
-    case 'error':
     case 'challenge':
+      // Circuit breaker: a bot challenge means further polling hurts the user's
+      // session. Wait at least an hour and back off up to six hours.
+      return new Date(now.getTime() + Math.max(intervalMs, backoffDelayMs(failures, { baseMs: 3_600_000, maxMs: 21_600_000 })));
+    case 'error':
     case 'schema_changed':
       return new Date(now.getTime() + Math.max(intervalMs, backoffDelayMs(failures)));
   }

@@ -2,15 +2,15 @@ import type { AppSettings, ProviderId, ProviderSettings } from '../providers/typ
 import { PROVIDER_IDS } from '../providers/types';
 
 const DEFAULT_INTERVALS: Record<ProviderId, number> = {
-  claude: 3,
-  chatgpt: 3,
+  claude: 10,
+  chatgpt: 10,
   zai: 3,
   poe: 10,
   litellm: 15,
   openrouter: 10,
 };
 
-const MIN_INTERVALS: Partial<Record<ProviderId, number>> = { litellm: 10 };
+const MIN_INTERVALS: Partial<Record<ProviderId, number>> = { claude: 5, chatgpt: 5, litellm: 10 };
 
 export function minIntervalFor(id: ProviderId): number {
   return MIN_INTERVALS[id] ?? 1;

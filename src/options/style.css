@@ -438,6 +438,14 @@ body {
   justify-content: flex-end;
 }
 
+.phone-relay-endpoint {
+  overflow-wrap: anywhere;
+}
+
+.phone-relay .card-actions {
+  flex-wrap: wrap;
+}
+
 @media (max-width: 600px) {
   .options-container {
     padding: var(--space-4) var(--space-3);

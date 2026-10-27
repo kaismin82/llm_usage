@@ -34,6 +34,7 @@ import {
   validateProviderSettings,
 } from './logic';
 import { CustomProviders } from './CustomProviders';
+import { PhoneRelay } from './PhoneRelay';
 
 type FocusedKeys = Partial<Record<ProviderId, boolean>>;
 
@@ -564,6 +565,7 @@ export function App() {
       </section>
 
       <CustomProviders />
+      <PhoneRelay />
 
       <section class="section">
         <h2>표시 설정</h2>

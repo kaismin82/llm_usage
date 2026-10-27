@@ -69,8 +69,10 @@
 }
 
 body {
-  width: 460px;
-  max-height: 600px;
+  /* Side panel: fill the docked width (Chrome lets the user resize it). */
+  width: 100%;
+  min-width: 320px;
+  min-height: 100vh;
   overflow-x: hidden;
   overflow-y: auto;
   font-family: var(--font);

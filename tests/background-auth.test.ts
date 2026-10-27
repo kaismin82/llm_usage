@@ -26,6 +26,7 @@ function installWorker(status: 'ok' | 'auth_required') {
   vi.stubGlobal('fetch', wire);
   vi.stubGlobal('chrome', {
     storage: {
+      onChanged: event(),
       local: {
         get: async (key: string) => ({ [key]: structuredClone(data[key]) }),
         set: async (items: Record<string, unknown>) => {
@@ -36,7 +37,15 @@ function installWorker(status: 'ok' | 'auth_required') {
     },
     runtime: { onMessage: event(), onInstalled: event(), onStartup: event() },
     alarms: { onAlarm: { addListener: (handler: typeof alarmHandlers[number]) => alarmHandlers.push(handler) }, create: vi.fn() },
-    tabs: { onUpdated: { addListener: (handler: typeof tabHandlers[number]) => tabHandlers.push(handler) } },
+    tabs: {
+      onUpdated: { addListener: (handler: typeof tabHandlers[number]) => tabHandlers.push(handler) },
+      query: async () => [{ id: 42 }],
+    },
+    scripting: {
+      executeScript: async (injection: { func: (...args: never[]) => unknown; args: unknown[] }) => [
+        { result: await injection.func(...(injection.args as never[])) },
+      ],
+    },
     idle: { queryState: async () => 'active', setDetectionInterval: vi.fn(), onStateChanged: event() },
     permissions: { contains: async () => true, onAdded: event() },
     action: {

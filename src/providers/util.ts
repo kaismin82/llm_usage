@@ -89,6 +89,10 @@ export function errorToSnapshot(
   e: unknown,
   previous?: ProviderSnapshot,
 ): ProviderSnapshot {
+  if (e instanceof Error && e.name === 'NoSessionTab') {
+    const site = provider === 'claude' ? 'claude.ai' : 'chatgpt.com';
+    return errorSnapshot(provider, now, 'auth_required', `${site}에 로그인된 탭이 필요합니다`, previous);
+  }
   const message = e instanceof Error ? e.message : String(e);
   return errorSnapshot(provider, now, 'error', message, previous);
 }

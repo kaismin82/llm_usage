@@ -35,14 +35,25 @@ export interface SchedulerDeps {
   timeoutMs?: number;
 }
 
-export function dueProviders(settings: AppSettings, state: ScheduleState, now: Date): ProviderId[] {
+export function dueProviders(
+  settings: AppSettings,
+  state: ScheduleState,
+  snapshots: SnapshotMap,
+  now: Date,
+): ProviderId[] {
   const time = now.getTime();
   return PROVIDER_IDS.filter((id) => {
     if (!settings.providers[id]?.enabled) return false;
     const entry = state[id];
     if (entry === undefined) return true;
     if (entry.nextDueAt === null) return false;
-    return Date.parse(entry.nextDueAt) <= time;
+    if (Date.parse(entry.nextDueAt) > time) return false;
+    // A stale nextDueAt must not refresh faster than the configured interval:
+    // pace scheduling on the last successful observation as well.
+    const intervalMs = settings.providers[id].intervalMin * 60_000;
+    const fetched = snapshots[id]?.fetchedAt;
+    if (fetched !== undefined && time - Date.parse(fetched) < intervalMs - 5_000) return false;
+    return true;
   });
 }
 
@@ -82,7 +93,7 @@ export async function runProviders(
   const newState: ScheduleState = { ...state };
   const latest: SnapshotMap = { ...snapshots };
   const allEvents: ResetEvent[] = [];
-  const due = new Set(dueProviders(settings, state, deps.now()));
+  const due = new Set(dueProviders(settings, state, snapshots, deps.now()));
 
   const settle = async (
     id: ProviderId,
@@ -144,6 +155,11 @@ export async function runProviders(
   };
 
   await Promise.allSettled(ids.map((id) => runOne(id)));
-  await deps.setState(newState);
+  // Persist only the providers this run settled; setState merges over current
+  // state, so carrying the full start-read map would clobber concurrent
+  // updates to other providers' schedule entries.
+  const patch: ScheduleState = {};
+  for (const id of ids) if (newState[id] !== undefined) patch[id] = newState[id];
+  await deps.setState(patch);
   await deps.present(latest, settings, allEvents);
 }

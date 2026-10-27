@@ -16,10 +16,12 @@ import { isCustomMessage } from '../custom/config';
 import { registerCustomProviders } from '../custom/runtime';
 import { withinCooldown } from '../core/refresh-policy';
 import { configureIdleDetection, isUserIdle, onUserActive } from '../core/idle';
+import { registerPhoneRelay } from '../phone-relay/runtime';
+import { isPhoneRelayMessage } from '../phone-relay/store';
 
 const SCHEDULE_KEY = 'schedule';
 const TICK_ALARM = 'tick';
-const TAB_RETRY_MS = 30_000;
+const TAB_RETRY_MS = 300_000;
 
 async function getScheduleState(): Promise<ScheduleState> {
   const stored = await chrome.storage.local.get(SCHEDULE_KEY);
@@ -68,7 +70,11 @@ function runProvider(id: ProviderId, opts: { force?: boolean } = {}): Promise<vo
 }
 
 function runAll(ids: ProviderId[], opts: { force?: boolean } = {}): Promise<void> {
-  return Promise.allSettled(ids.map((id) => runProvider(id, opts))).then(() => undefined);
+  // Sequential: concurrent runProviders instances each read schedule state and
+  // write the whole map, so parallel finishes clobber other providers' entries.
+  return (async () => {
+    for (const id of ids) await runProvider(id, opts);
+  })().then(() => undefined);
 }
 
 async function runDue(): Promise<void> {
@@ -79,12 +85,13 @@ async function runDue(): Promise<void> {
     state[id]?.nextDueAt === null && snapshots[id]?.status === 'auth_required',
   );
   if (pausedSessions.length > 0) await runAll(pausedSessions, { force: true });
-  await runAll(dueProviders(settings, state, new Date()));
+  await runAll(dueProviders(settings, state, snapshots, new Date()));
 }
 
 async function ensureTickAlarm(): Promise<void> {
   const alarm = await chrome.alarms.get(TICK_ALARM);
-  if (!alarm) await chrome.alarms.create(TICK_ALARM, { periodInMinutes: 1 });
+  // Sub-minute tick so 1-minute provider intervals are refreshed promptly.
+  if (!alarm) await chrome.alarms.create(TICK_ALARM, { periodInMinutes: 0.5 });
   await runDue();
 }
 
@@ -105,17 +112,26 @@ function providerForTab(url: string | undefined): ProviderId | null {
   return null;
 }
 
+// Dock the dashboard in Chrome's side panel (right side by default) instead of a popup.
+function enableSidePanel(): void {
+  void chrome.sidePanel?.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => undefined);
+}
+
 chrome.runtime.onInstalled.addListener(() => {
+  enableSidePanel();
   void ensureTickAlarm();
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  enableSidePanel();
   void ensureTickAlarm();
 });
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === TICK_ALARM) {
-    void runUnlessIdle(runDue);
+    // Scheduled collection must keep running while the browser is unattended;
+    // the phone relay depends on it. The idle gate stays only on reset alarms.
+    void runDue();
     return;
   }
   if (alarm.name.startsWith('reset:')) {
@@ -125,7 +141,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendResponse) => {
-  if (isCustomMessage(message)) return;
+  if (isCustomMessage(message) || isPhoneRelayMessage(message)) return;
   if (message.type === 'refresh') {
     void (async () => {
       const [settings, snapshots] = await Promise.all([getSettings(), getSnapshots()]);
@@ -155,7 +171,7 @@ chrome.runtime.onMessage.addListener((message: ExtensionMessage, _sender, sendRe
       resumed[id] = entry;
     }
     await chrome.storage.local.set({ [SCHEDULE_KEY]: resumed });
-    const due = new Set(dueProviders(settings, resumed, new Date()));
+    const due = new Set(dueProviders(settings, resumed, snapshots, new Date()));
     for (const id of PROVIDER_IDS) {
       if (settings.providers[id].enabled && snapshots[id] === undefined) due.add(id);
     }
@@ -174,7 +190,8 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     if (!settings.providers[provider].enabled) return;
     const snapshot = snapshots[provider];
     if (snapshot === undefined) return;
-    if (snapshot.status !== 'auth_required' && snapshot.status !== 'challenge') return;
+    // Never retry a challenge on page load: that would add requests while blocked.
+    if (snapshot.status !== 'auth_required') return;
     const now = Date.now();
     if (now - (tabPollAt.get(provider) ?? 0) < TAB_RETRY_MS) return;
     tabPollAt.set(provider, now);
@@ -192,3 +209,4 @@ onUserActive(() => {
 });
 
 registerCustomProviders();
+registerPhoneRelay();
