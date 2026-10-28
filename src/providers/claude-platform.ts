@@ -30,17 +30,23 @@ function utcMonthBounds(now: Date): MonthBounds {
   };
 }
 
-function sumCostCents(res: HttpResult): number | undefined {
+function sumCostCents(res: HttpResult, nowMs: number): number | undefined {
   if (!isRecord(res.json) || !Array.isArray(res.json.data)) return undefined;
   let total = 0;
   for (const bucket of res.json.data) {
     if (!isRecord(bucket) || !Array.isArray(bucket.results)) return undefined;
+    // Buckets still ending in the future are the open current day: not final,
+    // so their amount is validated but excluded - the tail is token-estimated instead.
+    if (typeof bucket.ending_at !== 'string') return undefined;
+    const endMs = Date.parse(bucket.ending_at);
+    if (!Number.isFinite(endMs)) return undefined;
+    const isFinal = endMs <= nowMs;
     for (const item of bucket.results) {
       if (!isRecord(item)) return undefined;
       if (item.currency !== 'USD') return undefined;
       const amount = typeof item.amount === 'string' ? Number(item.amount) : Number.NaN;
       if (!Number.isFinite(amount) || amount < 0) return undefined;
-      total += amount;
+      if (isFinal) total += amount;
     }
   }
   return total;
@@ -49,12 +55,16 @@ function sumCostCents(res: HttpResult): number | undefined {
 const isLater = (candidate: string, current: string | undefined): boolean =>
   current === undefined || Date.parse(candidate) > Date.parse(current);
 
-/** Latest bucket end (RFC 3339) in a cost report page; buckets are daily and include empty days. */
-function latestBucketEnd(res: HttpResult): string | undefined {
+/** Latest FINAL bucket end (RFC 3339) in a cost report page; buckets are daily and include empty days.
+ * A bucket whose ending_at is still in the future is the open current day and does not count as coverage. */
+function latestBucketEnd(res: HttpResult, nowMs: number): string | undefined {
   if (!isRecord(res.json) || !Array.isArray(res.json.data)) return undefined;
   let latest: string | undefined;
   for (const bucket of res.json.data) {
-    if (isRecord(bucket) && typeof bucket.ending_at === 'string' && isLater(bucket.ending_at, latest)) latest = bucket.ending_at;
+    if (!isRecord(bucket) || typeof bucket.ending_at !== 'string') continue;
+    const endMs = Date.parse(bucket.ending_at);
+    if (!Number.isFinite(endMs) || endMs > nowMs) continue;
+    if (isLater(bucket.ending_at, latest)) latest = bucket.ending_at;
   }
   return latest;
 }
@@ -118,12 +128,12 @@ export const claudePlatformAdapter: ProviderAdapter = {
         });
         const failure = httpError(res, now, ctx.previous);
         if (failure) return failure;
-        const pageCents = sumCostCents(res);
+        const pageCents = sumCostCents(res, now.getTime());
         if (pageCents === undefined) {
           return errorSnapshot('claude_platform', now, 'schema_changed', 'invalid cost report response', ctx.previous);
         }
         cents = (cents ?? 0) + pageCents;
-        const pageEnd = latestBucketEnd(res);
+        const pageEnd = latestBucketEnd(res, now.getTime());
         if (pageEnd !== undefined && isLater(pageEnd, coveredUntil)) coveredUntil = pageEnd;
         const more = isRecord(res.json) && res.json.has_more === true;
         const nextPage = isRecord(res.json) && typeof res.json.next_page === 'string' ? res.json.next_page : undefined;

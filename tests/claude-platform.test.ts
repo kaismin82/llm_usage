@@ -3,6 +3,7 @@ import { claudePlatformAdapter } from '../src/providers/claude-platform';
 import { makeCtx } from './helpers';
 
 const COST = 'https://api.anthropic.com/v1/organizations/cost_report';
+const FINAL_BUCKET_NOW = new Date('2026-10-02T00:00:00Z');
 
 function page(amounts: string[], opts: { hasMore?: boolean; nextPage?: string } = {}) {
   return {
@@ -27,6 +28,7 @@ describe('claudePlatformAdapter', () => {
   it('sums the UTC month in cents against the configured limit', async () => {
     const ctx = makeCtx({
       provider: 'claude_platform',
+      now: FINAL_BUCKET_NOW,
       providerSettings: { apiKey: 'sk-ant-admin01-test', monthlyLimitUsd: 200 },
       routes: [{ match: COST, reply: { json: page(['10000', '5000']) } }],
     });
@@ -46,6 +48,7 @@ describe('claudePlatformAdapter', () => {
   it('follows pagination and stops at the last page', async () => {
     const ctx = makeCtx({
       provider: 'claude_platform',
+      now: FINAL_BUCKET_NOW,
       providerSettings: { apiKey: 'k' },
       routes: [
         { match: /page=pg2/, reply: { json: page(['250'], {}) } },
@@ -63,6 +66,7 @@ describe('claudePlatformAdapter', () => {
   it('keeps usage visible without a limit when monthlyLimitUsd is 0', async () => {
     const ctx = makeCtx({
       provider: 'claude_platform',
+      now: FINAL_BUCKET_NOW,
       providerSettings: { apiKey: 'k', monthlyLimitUsd: 0 },
       routes: [{ match: COST, reply: { json: page(['1000']) } }],
     });
@@ -115,9 +119,13 @@ describe('claudePlatformAdapter', () => {
     const usage = (buckets: Array<{ start: string; rows: unknown[] }>) => ({
       data: buckets.map((bucket) => ({ starting_at: bucket.start, ending_at: bucket.start, results: bucket.rows })), has_more: false, next_page: null,
     });
-    const ctxFor = (cost: unknown, usageReply: { status?: number; json?: unknown }, limit = 200) => makeCtx({
-      provider: 'claude_platform', now: NOW, providerSettings: { apiKey: 'sk-ant-admin01-test', monthlyLimitUsd: limit },
+    const ctxFor = (cost: unknown, usageReply: { status?: number; json?: unknown }, limit = 200, now: Date = NOW) => makeCtx({
+      provider: 'claude_platform', now, providerSettings: { apiKey: 'sk-ant-admin01-test', monthlyLimitUsd: limit },
       routes: [{ match: USAGE, reply: usageReply }, { match: COST, reply: { json: cost } }],
+    });
+    const costBuckets = (buckets: Array<{ start: string; end: string; amount: string }>) => ({
+      data: buckets.map((bucket) => ({ starting_at: bucket.start, ending_at: bucket.end, results: [{ amount: bucket.amount, currency: 'USD' }] })),
+      has_more: false, next_page: null,
     });
 
     it('adds the estimate to the confirmed total, splits it in the label and ignores buckets the cost report already covers', async () => {
@@ -140,12 +148,35 @@ describe('claudePlatformAdapter', () => {
       expect(usageCall?.init?.credentials).toBe('omit');
     });
 
-    it('does not ask for or add an estimate once the cost report covers the present', async () => {
-      const ctx = ctxFor(costThrough('2026-10-29T00:00:00Z'), { json: usage([{ start: '2026-10-28T01:00:00Z', rows: [row({ output_tokens: 1_000_000 })] }]) });
+    it('does not ask for or add an estimate once a FINAL bucket ends at the present moment', async () => {
+      const ctx = ctxFor(costThrough('2026-10-28T00:00:00Z'), { json: usage([{ start: '2026-10-28T01:00:00Z', rows: [row({ output_tokens: 1_000_000 })] }]) }, 200, new Date('2026-10-28T00:00:00Z'));
       const snapshot = await claudePlatformAdapter.fetchSnapshot(ctx);
       expect(ctx.calls).toHaveLength(1);
       expect(snapshot.windows[0]).toMatchObject({ label: '이번달 (UTC)', usedAmount: 23.62 });
       expect(snapshot.balance?.label).toBe('남은 한도');
+    });
+
+    it('treats a bucket still ending in the future as non-final: drops its amount and estimates today from tokens', async () => {
+      const ctx = ctxFor(costBuckets([
+        { start: '2026-10-27T00:00:00Z', end: '2026-10-28T00:00:00Z', amount: '2362' },
+        { start: '2026-10-28T00:00:00Z', end: '2026-10-29T00:00:00Z', amount: '0' },
+      ]), { json: usage([{ start: '2026-10-28T01:00:00Z', rows: [row({ output_tokens: 1_000_000 })] }]) });
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctx);
+      expect(ctx.calls).toHaveLength(2);
+      expect(ctx.calls[1]?.url).toContain('starting_at=2026-10-28T00:00:00Z');
+      expect(snapshot.windows[0]?.usedAmount).toBeCloseTo(33.62, 6);
+      expect(snapshot.windows[0]?.label).toBe('이번달 (UTC) · 확정 $23.62 + 오늘 추정 $10.00');
+      expect(snapshot.balance?.label).toBe('남은 한도 (추정 포함)');
+    });
+
+    it('does not double-count a partially attributed open day: the partial amount is dropped and the day is token-estimated', async () => {
+      const ctx = ctxFor(costBuckets([
+        { start: '2026-10-27T00:00:00Z', end: '2026-10-28T00:00:00Z', amount: '2362' },
+        { start: '2026-10-28T00:00:00Z', end: '2026-10-29T00:00:00Z', amount: '150' },
+      ]), { json: usage([{ start: '2026-10-28T01:00:00Z', rows: [row({ output_tokens: 1_000_000 })] }]) });
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctx);
+      expect(snapshot.windows[0]?.usedAmount).toBeCloseTo(33.62, 6);
+      expect(snapshot.windows[0]?.label).toBe('이번달 (UTC) · 확정 $23.62 + 오늘 추정 $10.00');
     });
 
     it('shows only the confirmed value and says so when the usage report cannot be read', async () => {
