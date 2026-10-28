@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { extractSecondaryProviders } from '../src/phone-relay/secondary';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createSecondaryPoller, extractSecondaryProviders } from '../src/phone-relay/secondary';
 import type { PhonePayload } from '../src/phone-relay/payload';
 
 type PhoneProvider = PhonePayload['providers'][number];
@@ -49,5 +49,42 @@ describe('extractSecondaryProviders', () => {
       expect(extracted['sub2'].windows).toHaveLength(1);
       expect(extracted['sub2'].windows[0]).toMatchObject({ kind: 'session_5h', usedPercent: 42 });
     }
+  });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('polls the reader and saves only the secondary Claude subscription from a real-shaped merged response', async () => {
+    vi.stubGlobal('chrome', { storage: { local: { get: async () => ({}) } } });
+    const at = '2026-10-28T02:09:26.190Z';
+    const merged = { receivedAt: at, data: { version: 1, sentAt: at, providers: [
+      provider({ id: 'claude', name: 'Claude' }),
+      provider({
+        id: 'claude#sub2', name: 'Claude · sub2',
+        windows: [
+          { kind: 'session_5h', label: '5시간', unit: 'percent', usedPercent: 89 },
+          { kind: 'weekly_7d', label: '7일', unit: 'percent', usedPercent: 65 },
+          { kind: 'month', label: 'Extra usage', unit: 'usd', usedPercent: 100, usedAmount: 115.05, limitAmount: 115 },
+        ],
+      }),
+      provider({
+        id: 'openrouter#sub2', name: 'OpenRouter · sub2',
+        windows: [{ kind: 'month', label: '이번달', unit: 'usd', usedAmount: 6.865505865, periodTz: 'UTC' }],
+        balance: { amount: 34.07, unit: 'usd', limit: 1420, label: '남은 크레딧' },
+      }),
+    ] } };
+    const saved: Array<Record<string, { windows: Array<{ kind: string }> }>> = [];
+    const poller = createSecondaryPoller({
+      getConfig: async () => ({ enabled: true, readToken: 'r'.repeat(40) }),
+      hasPermission: async () => true,
+      fetchImpl: async () => new Response(JSON.stringify(merged), { status: 200 }),
+      save: async (snapshots) => { saved.push(snapshots as never); },
+      now: () => new Date(at),
+    });
+
+    await poller.poll();
+
+    expect(saved).toHaveLength(1);
+    expect(Object.keys(saved[0])).toEqual(['sub2']);
+    expect(saved[0]['sub2'].windows.map((window) => window.kind)).toEqual(['session_5h', 'weekly_7d', 'month']);
   });
 });

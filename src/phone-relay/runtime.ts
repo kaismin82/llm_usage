@@ -47,6 +47,9 @@ export function registerPhoneRelay(): void {
       }
     }).catch(() => undefined);
     void sender.send();
+    // Refresh the secondary account right away (install, browser start, worker wake-up) so a value
+    // stored by an older version is replaced without waiting for the next alarm tick.
+    void secondaryPoller.poll();
   };
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;

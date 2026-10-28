@@ -8,6 +8,9 @@ export const RELAY_ENDPOINT = 'http://127.0.0.1:8770/api/ingest';
 export const RELAY_READER_URL = 'http://127.0.0.1:8771/api/snapshot';
 export const SECONDARY_CONFIG_KEY = 'claudeSecondaryConfig';
 export const SECONDARY_SNAPSHOTS_KEY = 'claudeSecondarySnapshots';
+// Bump when the stored secondary shape or its mapping changes. Values written without this marker
+// came from older mappings (for example "last entry of the label wins") and are not trusted.
+export const SECONDARY_SCHEMA = 2;
 export const RELAY_ALARM = 'phone-relay-heartbeat';
 
 export type RelayConfig = { enabled: boolean; writeToken: string; accountLabel: string };
@@ -55,9 +58,9 @@ export async function saveSecondaryConfig(config: SecondaryConfig): Promise<void
 export async function getSecondarySnapshots(): Promise<SecondarySnapshots> {
   const value: unknown = (await chrome.storage.local.get(SECONDARY_SNAPSHOTS_KEY))[SECONDARY_SNAPSHOTS_KEY];
   const result: SecondarySnapshots = {};
-  if (!isRecord(value)) return result;
-  for (const [label, snapshot] of Object.entries(value)) {
-    if (isRecord(snapshot) && typeof snapshot.status === 'string' && Array.isArray(snapshot.windows)) {
+  if (!isRecord(value) || value.schema !== SECONDARY_SCHEMA || !isRecord(value.snapshots)) return result;
+  for (const [label, snapshot] of Object.entries(value.snapshots)) {
+    if (isRecord(snapshot) && snapshot.provider === 'claude' && typeof snapshot.status === 'string' && Array.isArray(snapshot.windows)) {
       result[label] = snapshot as unknown as ProviderSnapshot;
     }
   }
@@ -65,7 +68,7 @@ export async function getSecondarySnapshots(): Promise<SecondarySnapshots> {
 }
 
 export async function saveSecondarySnapshots(snapshots: SecondarySnapshots): Promise<void> {
-  await chrome.storage.local.set({ [SECONDARY_SNAPSHOTS_KEY]: snapshots });
+  await chrome.storage.local.set({ [SECONDARY_SNAPSHOTS_KEY]: { schema: SECONDARY_SCHEMA, snapshots } });
 }
 
 export async function getRelayStatus(): Promise<RelayStatus | undefined> {
