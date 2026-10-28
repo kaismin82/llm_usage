@@ -17,8 +17,13 @@ export function extractSecondaryProviders(
   for (const provider of providers ?? []) {
     const separator = provider.id.indexOf('#');
     if (separator <= 0) continue;
+    const base = provider.id.slice(0, separator);
+    // Only the Claude subscription becomes a secondary card. Labeled slots may also
+    // carry claude_platform (shared admin key); showing that here would replace the
+    // subscription windows with the platform's monthly USD window.
+    if (base !== 'claude') continue;
     const label = provider.id.slice(separator + 1);
-    if (!label) continue;
+    if (!label || result[label]) continue;
     result[label] = {
       provider: 'claude',
       status: provider.status as ProviderSnapshot['status'],

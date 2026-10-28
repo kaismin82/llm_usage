@@ -81,6 +81,11 @@ function mergedReceipt(slots: Map<string, PhoneReceipt>): PhoneReceipt | null {
     if (receipt.receivedAt > receivedAt) receivedAt = receipt.receivedAt;
     if (receipt.data.sentAt > sentAt) sentAt = receipt.data.sentAt;
     for (const provider of receipt.data.providers) {
+      if (label !== MAIN && provider.id === 'claude_platform') {
+        // Claude Platform usage is organization-wide: keep only the main slot's copy
+        // so two profiles sharing one admin key do not render duplicate cards.
+        continue;
+      }
       providers.push(label === MAIN ? provider : { ...provider, id: `${provider.id}#${label}`, name: `${provider.name} · ${label}` });
     }
   }

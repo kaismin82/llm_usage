@@ -144,6 +144,23 @@ describe('phone relay HTTP boundary', () => {
     expect(await readFile(join(directory, 'accounts', 'sub2.json'), 'utf8')).toContain('sub2');
   });
 
+  it('keeps one claude_platform card when main and labeled slots both report it', async () => {
+    const platform = {
+      id: 'claude_platform', name: 'Claude Platform (API)', status: 'ok',
+      fetchedAt: '2026-10-25T09:50:00Z', attemptedAt: '2026-10-25T09:50:00Z',
+      windows: [{ kind: 'month', label: '이번달', unit: 'usd', usedAmount: 18.09, limitAmount: 200 }],
+      grants: [],
+    };
+    const claude = { ...payload.providers[0], id: 'claude', name: 'Claude', extraCredits: undefined };
+    expect((await ingest({ ...payload, providers: [claude, platform] })).status).toBe(200);
+    expect((await ingest({ ...payload, account: 'sub2', providers: [claude, platform] })).status).toBe(200);
+    const response = await fetch(readerUrl + '/api/snapshot', { headers: { Authorization: 'Bearer ' + readToken } });
+    const ids = (await response.json()).data.providers.map((provider: { id: string }) => provider.id);
+    expect(ids.filter((id: string) => id === 'claude_platform')).toHaveLength(1);
+    expect(ids).toContain('claude#sub2');
+    expect(ids).not.toContain('claude_platform#sub2');
+  });
+
   it('answers extension-origin CORS preflights without credentials', async () => {
     const origin = 'chrome-extension://' + 'a'.repeat(32);
     const preflight = await fetch(readerUrl + '/api/snapshot', {

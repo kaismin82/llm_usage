@@ -36,4 +36,18 @@ describe('extractSecondaryProviders', () => {
     ]);
     expect(extracted).toEqual({});
   });
+
+  it('uses the subscription entry, never claude_platform, when a labeled slot carries both', () => {
+    const platform = provider({
+      id: 'claude_platform#sub2', name: 'Claude Platform (API) · sub2',
+      windows: [{ kind: 'month', label: '이번달', unit: 'usd', usedAmount: 18.09, limitAmount: 200 }],
+    });
+    const subscription = provider({ id: 'claude#sub2', name: 'Claude · sub2' });
+    for (const order of [[platform, subscription], [subscription, platform]]) {
+      const extracted = extractSecondaryProviders(order);
+      expect(Object.keys(extracted)).toEqual(['sub2']);
+      expect(extracted['sub2'].windows).toHaveLength(1);
+      expect(extracted['sub2'].windows[0]).toMatchObject({ kind: 'session_5h', usedPercent: 42 });
+    }
+  });
 });

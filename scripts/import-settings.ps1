@@ -22,12 +22,13 @@ $json = $payload | ConvertTo-Json -Compress
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($json)
 $b64 = [Convert]::ToBase64String($bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_')
 $url = "chrome-extension://$ExtensionId/options.html#import=$b64"
+$browserArgs = @()
+$q = [char]34
+if ($Profile) { $browserArgs += $q + '--profile-directory=' + $Profile + $q }  # quoted: profile names contain spaces
+$browserArgs += $q + $url + $q
 if ($NoOpen) {
-  "OK: built $Mode import link (label: $Label, url length: $($url.Length) chars); -NoOpen set, browser not launched."
+  "OK: built $Mode import link (label: $Label); url: $($url.Length) chars (masked); browser args: $((($browserArgs | Where-Object { $_ -notlike '*chrome-extension://*' }) -join ' ~ ')); -NoOpen set, browser not launched."
   exit 0
 }
-$args = @()
-if ($Profile) { $args += "--profile-directory=$Profile" }
-$args += $url
-Start-Process -FilePath $Browser -ArgumentList $args
+Start-Process -FilePath $Browser -ArgumentList $browserArgs
 "OK: opened $Mode import link (label: $Label) in $([System.IO.Path]::GetFileName($Browser))" + $(if ($Profile) { " profile $Profile" } else { " default profile" })
