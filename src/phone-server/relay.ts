@@ -81,11 +81,11 @@ function mergedReceipt(slots: Map<string, PhoneReceipt>): PhoneReceipt | null {
     if (receipt.receivedAt > receivedAt) receivedAt = receipt.receivedAt;
     if (receipt.data.sentAt > sentAt) sentAt = receipt.data.sentAt;
     for (const provider of receipt.data.providers) {
-      if (label !== MAIN && provider.id === 'claude_platform') {
-        // Claude Platform usage is organization-wide: keep only the main slot's copy
-        // so two profiles sharing one admin key do not render duplicate cards.
-        continue;
-      }
+      // Labeled (non-main) slots exist to show a second Claude subscription. Their other providers
+      // (unconfigured ChatGPT/Z.ai, shared-key API providers, the organization-wide claude_platform)
+      // duplicate the main slot or carry no setup, so only the Claude subscription is merged.
+      // The slot file keeps the full payload.
+      if (label !== MAIN && provider.id !== 'claude') continue;
       providers.push(label === MAIN ? provider : { ...provider, id: `${provider.id}#${label}`, name: `${provider.name} · ${label}` });
     }
   }

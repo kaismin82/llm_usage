@@ -131,15 +131,18 @@ describe('phone relay HTTP boundary', () => {
   });
   it('stores labeled accounts in separate slots and merges suffixed ids for readers', async () => {
     expect((await ingest(payload)).status).toBe(200);
-    const labeled = { ...payload, account: 'sub2', providers: [payload.providers[0]] };
+    const claudeSub = { ...payload.providers[0], id: 'claude', name: 'Claude', extraCredits: undefined };
+    const labeled = { ...payload, account: 'sub2', providers: [claudeSub, payload.providers[0]] };
     expect((await ingest(labeled)).status).toBe(200);
     const response = await fetch(readerUrl + '/api/snapshot', { headers: { Authorization: 'Bearer ' + readToken } });
     const merged = await response.json();
     const ids = merged.data.providers.map((provider: { id: string }) => provider.id);
     expect(ids).toContain('chatgpt');
-    expect(ids).toContain('chatgpt#sub2');
-    const suffixed = merged.data.providers.find((provider: { id: string; name: string }) => provider.id === 'chatgpt#sub2');
-    expect(suffixed.name).toBe('ChatGPT · sub2');
+    expect(ids).toContain('claude#sub2');
+    // Only the Claude subscription of a labeled slot is merged; its ChatGPT entry is not.
+    expect(ids).not.toContain('chatgpt#sub2');
+    const suffixed = merged.data.providers.find((provider: { id: string; name: string }) => provider.id === 'claude#sub2');
+    expect(suffixed.name).toBe('Claude · sub2');
     expect(await readFile(join(directory, 'accounts', 'main.json'), 'utf8')).toContain('ChatGPT');
     expect(await readFile(join(directory, 'accounts', 'sub2.json'), 'utf8')).toContain('sub2');
   });
@@ -159,6 +162,8 @@ describe('phone relay HTTP boundary', () => {
     expect(ids.filter((id: string) => id === 'claude_platform')).toHaveLength(1);
     expect(ids).toContain('claude#sub2');
     expect(ids).not.toContain('claude_platform#sub2');
+    // Labeled slots contribute nothing but their Claude subscription.
+    expect(ids.filter((id: string) => id.includes('#'))).toEqual(['claude#sub2']);
   });
 
   it('answers extension-origin CORS preflights without credentials', async () => {

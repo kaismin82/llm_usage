@@ -1,12 +1,13 @@
 {
   "name": "llm-usage-glance",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --open /dev/index.html",
     "probe": "vite-node scripts/probe.ts --",
     "phone": "vite-node scripts/phone-relay.ts",
+    "claude-cost": "vite-node scripts/claude-cost-compare.ts --",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "build": "vite build"
