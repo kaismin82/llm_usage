@@ -490,3 +490,7 @@ body {
 .diag-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
 .diag-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; font-variant-numeric: tabular-nums; }
 .diag-key { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diag-key-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
+.diag-key-facts > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
+.diag-key-facts strong { font-size: 15px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.diag-today { margin: 0; font-size: 13px; font-weight: 600; }

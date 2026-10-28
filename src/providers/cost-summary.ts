@@ -10,6 +10,8 @@ export interface CostSummary {
   buckets: number;
   /** Latest bucket (by start) that carries a positive cost; undefined when nothing was billed. */
   lastCostBucket?: { startingAt: string; endingAt?: string };
+  /** Every daily bucket in the response, zero-cost days included, in response order. */
+  bucketTotals: Array<{ startingAt: string; endingAt?: string; usd: number }>;
 }
 
 export function topEntries(values: Record<string, number>, count: number): {
@@ -31,7 +33,7 @@ function add(map: Record<string, number>, key: string, usd: number): void {
  */
 export function summarizeCostBuckets(buckets: unknown): CostSummary | undefined {
   if (!Array.isArray(buckets)) return undefined;
-  const summary: CostSummary = { totalUsd: 0, byDay: {}, byCostType: {}, byWorkspace: {}, byModel: {}, items: 0, buckets: 0 };
+  const summary: CostSummary = { totalUsd: 0, byDay: {}, byCostType: {}, byWorkspace: {}, byModel: {}, items: 0, buckets: 0, bucketTotals: [] };
   for (const bucket of buckets) {
     if (!isRecord(bucket) || typeof bucket.starting_at !== 'string' || !Array.isArray(bucket.results)) return undefined;
     const day = bucket.starting_at.slice(0, 10);
@@ -50,6 +52,11 @@ export function summarizeCostBuckets(buckets: unknown): CostSummary | undefined 
       add(summary.byWorkspace, typeof item.workspace_id === 'string' ? item.workspace_id : 'default workspace', usd);
       add(summary.byModel, typeof item.model === 'string' ? item.model : '(no model)', usd);
     }
+    summary.bucketTotals.push({
+      startingAt: bucket.starting_at,
+      ...(typeof bucket.ending_at === 'string' ? { endingAt: bucket.ending_at } : {}),
+      usd: bucketUsd,
+    });
     if (bucketUsd > 0 && (summary.lastCostBucket === undefined || bucket.starting_at > summary.lastCostBucket.startingAt)) {
       summary.lastCostBucket = {
         startingAt: bucket.starting_at,

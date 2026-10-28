@@ -18,7 +18,15 @@ export interface DiagnoseParams {
 }
 
 export type DiagnoseResult =
-  | { ok: true; params: DiagnoseParams; pages: number; hasMore: boolean; summary: CostSummary }
+  | {
+    ok: true; params: DiagnoseParams; pages: number; hasMore: boolean; summary: CostSummary;
+    /** UTC time the diagnosis ran. */
+    queriedAt: string;
+    /** Number of daily buckets each page returned. */
+    pageSizes: number[];
+    /** Top-level field names of the last response (names only, never values). */
+    responseKeys: string[];
+  }
   | { ok: false; message: string };
 
 function failureMessage(error: unknown): string {
@@ -45,6 +53,8 @@ export async function diagnoseClaudePlatform(options: {
   let page: string | undefined;
   let pages = 0;
   let hasMore = false;
+  const pageSizes: number[] = [];
+  let responseKeys: string[] = [];
   for (let request = 0; request < DIAGNOSE_MAX_PAGES; request += 1) {
     const url = COST_URL + '?starting_at=' + params.startingAt + '&ending_at=' + params.endingAt +
       '&bucket_width=' + params.bucketWidth + '&limit=' + params.limit +
@@ -69,6 +79,8 @@ export async function diagnoseClaudePlatform(options: {
     }
     pages += 1;
     buckets.push(...response.json.data);
+    pageSizes.push(response.json.data.length);
+    responseKeys = Object.keys(response.json);
     const nextPage = typeof response.json.next_page === 'string' ? response.json.next_page : undefined;
     hasMore = response.json.has_more === true;
     if (!hasMore || !nextPage) break;
@@ -76,5 +88,5 @@ export async function diagnoseClaudePlatform(options: {
   }
   const summary = summarizeCostBuckets(buckets);
   if (!summary) return { ok: false, message: '비용 보고서를 음수 아닌 USD 금액으로 읽을 수 없어 합계를 표시하지 않습니다' };
-  return { ok: true, params, pages, hasMore, summary };
+  return { ok: true, params, pages, hasMore, summary, queriedAt: now.toISOString(), pageSizes, responseKeys };
 }

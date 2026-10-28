@@ -39,6 +39,10 @@ describe('diagnoseClaudePlatform', () => {
     expect(first.url).toContain('group_by[]=workspace_id');
     expect(first.init?.credentials).toBe('omit');
     expect(JSON.stringify(result)).not.toContain(KEY);
+    expect(result.queriedAt).toBe('2026-10-15T08:00:00.000Z');
+    expect(result.pageSizes).toEqual([2, 1]);
+    expect(result.responseKeys).toEqual(['data', 'has_more', 'next_page']);
+    expect(result.summary.bucketTotals.map((bucket) => bucket.usd)).toEqual([10, 0, 2.35]);
   });
 
   it('reports when the page limit cut the report short', async () => {

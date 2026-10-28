@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ClaudePlatformDiagnostics } from '../src/options/ClaudePlatformDiagnostics';
 import type { ProviderContext } from '../src/providers/types';
 import { click, onDom } from './custom-ui-helpers';
+import { DIAGNOSTICS_RUN_HASH, DIAGNOSTICS_SCROLL_HASH } from '../src/options/ClaudePlatformDiagnostics';
 
 const KEY = 'sk-ant-admin01-FAKE';
 const item = (amount: string, extra: Record<string, unknown> = {}) => ({ amount, currency: 'USD', ...extra });
@@ -66,5 +67,62 @@ describe('Claude Platform diagnostics panel', () => {
     await run();
     expect(root.textContent).toContain('접근 권한');
     expect(get).not.toHaveBeenCalled();
+  });
+
+  it('shows the key facts, bucket count, page info and the today summary', async () => {
+    render(<ClaudePlatformDiagnostics apiKey={KEY} displayedUsd={12.35} get={pagedGet()} ensurePermission={async () => true} now={() => new Date('2026-10-03T08:00:00Z')} />, root);
+    await run();
+    const text = (id: string) => root.querySelector('[data-testid="' + id + '"]')?.textContent;
+    expect(text('diag-queried')).toBe('2026-10-03T08:00:00.000Z');
+    expect(text('diag-last-ending')).toBe('2026-10-04T00:00:00Z');
+    expect(text('diag-latest-day')).toBe('$2.35');
+    expect(text('diag-bucket-count')).toBe('2개 (비용 있는 날 2개)');
+    expect(text('diag-today')).toContain('2026-10-03');
+    expect(text('diag-today')).toContain('$2.35 포함');
+    expect(text('diag-page-info')).toContain('[1, 1]');
+    expect(text('diag-page-info')).toContain('has_more');
+  });
+
+  it('runs once on load when autoRun is set and permission and key already exist, without a click or prompt', async () => {
+    const get = pagedGet();
+    const ensure = vi.fn(async () => true);
+    const done = onDom(root, () => root.querySelector('[data-testid="diag-report"]') !== null);
+    render(<ClaudePlatformDiagnostics apiKey={KEY} autoRun get={get} hasPermission={async () => true} ensurePermission={ensure} now={() => new Date('2026-10-15T08:00:00Z')} />, root);
+    await done;
+    expect(root.querySelector('[data-testid="diag-total"]')?.textContent).toBe('$12.35');
+    expect(ensure).not.toHaveBeenCalled();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(root.textContent).not.toContain(KEY);
+  });
+
+  it('does not auto-run without the hash flag', async () => {
+    const get = pagedGet();
+    render(<ClaudePlatformDiagnostics apiKey={KEY} get={get} hasPermission={async () => true} ensurePermission={async () => true} />, root);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(get).not.toHaveBeenCalled();
+    expect(root.querySelector('[data-testid="diag-report"]')).toBeNull();
+  });
+
+  it('auto-run without a stored permission or key only says so and never requests or fetches', async () => {
+    const get = pagedGet();
+    const ensure = vi.fn(async () => true);
+    const noPermission = onDom(root, () => root.querySelector('.warning') !== null);
+    render(<ClaudePlatformDiagnostics apiKey={KEY} autoRun get={get} hasPermission={async () => false} ensurePermission={ensure} />, root);
+    await noPermission;
+    expect(root.textContent).toContain('권한/키가 없어 자동 실행하지 않음');
+    render(null, root);
+
+    const noKey = onDom(root, () => root.querySelector('.warning') !== null);
+    render(<ClaudePlatformDiagnostics apiKey="" autoRun get={get} hasPermission={async () => true} ensurePermission={ensure} />, root);
+    await noKey;
+    expect(root.textContent).toContain('권한/키가 없어 자동 실행하지 않음');
+    expect(get).not.toHaveBeenCalled();
+    expect(ensure).not.toHaveBeenCalled();
+  });
+
+  it('keeps the plain diagnostics hash scroll-only and distinct from the run hash', () => {
+    expect(DIAGNOSTICS_RUN_HASH).not.toBe(DIAGNOSTICS_SCROLL_HASH);
+    expect(DIAGNOSTICS_RUN_HASH.startsWith(DIAGNOSTICS_SCROLL_HASH)).toBe(true);
   });
 });

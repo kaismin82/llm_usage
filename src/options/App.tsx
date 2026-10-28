@@ -36,7 +36,7 @@ import {
 import { CustomProviders } from './CustomProviders';
 import { PhoneRelay } from './PhoneRelay';
 import { applyImportHash } from './import-hash';
-import { ClaudePlatformDiagnostics } from './ClaudePlatformDiagnostics';
+import { ClaudePlatformDiagnostics, DIAGNOSTICS_RUN_HASH, DIAGNOSTICS_SCROLL_HASH } from './ClaudePlatformDiagnostics';
 
 type FocusedKeys = Partial<Record<ProviderId, boolean>>;
 
@@ -57,6 +57,7 @@ export function App() {
   const [tzError, setTzError] = useState('');
   const [notifDenied, setNotifDenied] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const testClickTime = useRef<number>(0);
   const dirtyRef = useRef(false);
   dirtyRef.current = dirty;
@@ -68,6 +69,7 @@ export function App() {
       if (mounted) {
         if (!dirtyRef.current) setSettings(s);
         setSnapshots(sn);
+        setLoaded(true);
       }
     };
     load();
@@ -258,7 +260,7 @@ export function App() {
   // options.html#claude-platform-diagnostics scrolls the diagnosis section into view once it is rendered.
   const diagnosticsScrolled = useRef(false);
   useEffect(() => {
-    if (diagnosticsScrolled.current || window.location.hash !== '#claude-platform-diagnostics') return;
+    if (diagnosticsScrolled.current || (window.location.hash !== DIAGNOSTICS_SCROLL_HASH && window.location.hash !== DIAGNOSTICS_RUN_HASH)) return;
     const section = document.getElementById('claude-platform-diagnostics');
     if (!section) return;
     diagnosticsScrolled.current = true;
@@ -495,6 +497,7 @@ export function App() {
             </p>
             <ClaudePlatformDiagnostics
               apiKey={ps.apiKey ?? ''}
+              autoRun={loaded && window.location.hash === DIAGNOSTICS_RUN_HASH}
               displayedUsd={snapshots.claude_platform?.windows.find((window) => window.kind === 'month')?.usedAmount}
             />
             {(ps.apiKey ?? '').startsWith('sk-ant-admin') && (

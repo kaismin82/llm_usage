@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { createSafeFetch } from '../core/safe-fetch';
 import { diagnoseClaudePlatform, DIAGNOSE_MAX_PAGES, type DiagnoseResult } from '../providers/claude-platform-diagnose';
 import { topEntries } from '../providers/cost-summary';
@@ -10,6 +10,17 @@ async function ensureHostPermission(): Promise<boolean> {
   try {
     if (await chrome.permissions.contains({ origins: ORIGINS })) return true;
     return await chrome.permissions.request({ origins: ORIGINS });
+  } catch {
+    return false;
+  }
+}
+
+export const DIAGNOSTICS_SCROLL_HASH = '#claude-platform-diagnostics';
+export const DIAGNOSTICS_RUN_HASH = '#claude-platform-diagnostics-run';
+
+async function hasHostPermission(): Promise<boolean> {
+  try {
+    return await chrome.permissions.contains({ origins: ORIGINS });
   } catch {
     return false;
   }
@@ -34,11 +45,37 @@ function Group({ title, values }: { title: string; values: Record<string, number
 
 function Report({ result, displayedUsd }: { result: Extract<DiagnoseResult, { ok: true }>; displayedUsd?: number }) {
   const { params, pages, hasMore, summary } = result;
+  const today = result.queriedAt.slice(0, 10);
+  const todayBucket = summary.bucketTotals.find((bucket) => bucket.startingAt.slice(0, 10) === today);
+  const latest = summary.bucketTotals.reduce<(typeof summary.bucketTotals)[number] | undefined>(
+    (best, bucket) => (best === undefined || bucket.startingAt > best.startingAt ? bucket : best), undefined);
+  const billedDays = Object.keys(summary.byDay).length;
+  const todayLine = todayBucket === undefined
+    ? '오늘(UTC ' + today + ') 버킷이 응답에 없습니다'
+    : todayBucket.usd > 0
+      ? '오늘(UTC ' + today + ') 버킷에 ' + usd(todayBucket.usd) + ' 포함'
+      : '오늘(UTC ' + today + ') 버킷은 있으나 비어 있습니다 (데이터 지연 신호일 수 있음)';
   const days = Object.entries(summary.byDay).sort((a, b) => a[0].localeCompare(b[0]));
   const diff = displayedUsd === undefined ? undefined : summary.totalUsd - displayedUsd;
   const last = summary.lastCostBucket;
   return (
     <div class="diag-report" data-testid="diag-report">
+      <div class="diag-key-facts" data-testid="diag-key-facts">
+        <div><span class="diag-label">조회 시각 (UTC)</span><strong data-testid="diag-queried">{result.queriedAt}</strong></div>
+        <div>
+          <span class="diag-label">마지막 비용 버킷 ending_at</span>
+          <strong data-testid="diag-last-ending">{summary.lastCostBucket ? (summary.lastCostBucket.endingAt ?? '(응답에 없음)') : '비용이 있는 버킷 없음'}</strong>
+        </div>
+        <div>
+          <span class="diag-label">가장 최근 날짜의 합계{latest ? ' (' + latest.startingAt.slice(0, 10) + ')' : ''}</span>
+          <strong data-testid="diag-latest-day">{latest ? usd(latest.usd) : '버킷 없음'}</strong>
+        </div>
+        <div>
+          <span class="diag-label">일 버킷 수 (비용 0인 날 포함)</span>
+          <strong data-testid="diag-bucket-count">{summary.buckets}개 (비용 있는 날 {billedDays}개)</strong>
+        </div>
+      </div>
+      <p class="diag-today" data-testid="diag-today">{todayLine}</p>
       <div class="diag-grid">
         <div><span class="diag-label">진단 합계 (UTC 월)</span><strong data-testid="diag-total">{usd(summary.totalUsd)}</strong></div>
         <div><span class="diag-label">현재 표시값</span><strong>{displayedUsd === undefined ? '없음' : usd(displayedUsd)}</strong></div>
@@ -57,6 +94,9 @@ function Report({ result, displayedUsd }: { result: Extract<DiagnoseResult, { ok
         요청: starting_at={params.startingAt} · ending_at={params.endingAt} · bucket_width={params.bucketWidth} · limit={params.limit} ·
         group_by={params.groupBy.join(',')} · 페이지 {pages}개 · 버킷 {summary.buckets}개 · 항목 {summary.items}개 ·
         has_more {hasMore ? '예 (페이지 한도 ' + DIAGNOSE_MAX_PAGES + '개로 잘렸을 수 있음)' : '아니오'}
+      </p>
+      <p class="diag-params" data-testid="diag-page-info">
+        페이지 크기: 요청 limit={params.limit}, 페이지별 버킷 수 [{result.pageSizes.join(', ')}] · 응답 최상위 필드: {result.responseKeys.join(', ') || '없음'}
       </p>
       <h4>일별 합계 (UTC)</h4>
       <div class="diag-days">
@@ -85,23 +125,29 @@ export function ClaudePlatformDiagnostics(props: {
   displayedUsd?: number;
   get?: ProviderContext['get'];
   ensurePermission?: () => Promise<boolean>;
+  /** Read-only permission check used by the automatic run; it never prompts. */
+  hasPermission?: () => Promise<boolean>;
+  /** Run once on load (options.html#claude-platform-diagnostics-run) when permission and key already exist. */
+  autoRun?: boolean;
   now?: () => Date;
 }) {
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<Extract<DiagnoseResult, { ok: true }> | undefined>();
 
-  const run = async () => {
+  const run = async (auto = false) => {
     setMessage('');
     setResult(undefined);
     if (!props.apiKey.trim()) {
-      setMessage('먼저 Admin API 키를 입력하세요');
+      setMessage(auto ? '권한/키가 없어 자동 실행하지 않음' : '먼저 Admin API 키를 입력하세요');
       return;
     }
     setRunning(true);
     try {
-      if (!(await (props.ensurePermission ?? ensureHostPermission)())) {
-        setMessage('api.anthropic.com 접근 권한이 필요합니다');
+      // The automatic run only checks an existing grant; it never opens a permission prompt.
+      const granted = auto ? await (props.hasPermission ?? hasHostPermission)() : await (props.ensurePermission ?? ensureHostPermission)();
+      if (!granted) {
+        setMessage(auto ? '권한/키가 없어 자동 실행하지 않음' : 'api.anthropic.com 접근 권한이 필요합니다');
         return;
       }
       const outcome = await diagnoseClaudePlatform({
@@ -115,6 +161,13 @@ export function ClaudePlatformDiagnostics(props: {
       setRunning(false);
     }
   };
+
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!props.autoRun || autoStarted.current) return;
+    autoStarted.current = true;
+    void run(true);
+  }, [props.autoRun]);
 
   return (
     <section class="diag" id="claude-platform-diagnostics" aria-label="Claude Platform 사용량 진단">
