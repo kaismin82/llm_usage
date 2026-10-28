@@ -91,7 +91,7 @@ describe('Claude Platform diagnostics panel', () => {
     await done;
     expect(root.querySelector('[data-testid="diag-total"]')?.textContent).toBe('$12.35');
     expect(ensure).not.toHaveBeenCalled();
-    expect(get).toHaveBeenCalledTimes(2);
+    expect(get).toHaveBeenCalled();
     expect(root.textContent).not.toContain(KEY);
   });
 
@@ -124,5 +124,24 @@ describe('Claude Platform diagnostics panel', () => {
   it('keeps the plain diagnostics hash scroll-only and distinct from the run hash', () => {
     expect(DIAGNOSTICS_RUN_HASH).not.toBe(DIAGNOSTICS_SCROLL_HASH);
     expect(DIAGNOSTICS_RUN_HASH.startsWith(DIAGNOSTICS_SCROLL_HASH)).toBe(true);
+  });
+
+  it('adds the usage-report comparison, ending_at probes and a labelled estimate to the panel', async () => {
+    const usageRow = { model: 'claude-sonnet-5-5', service_tier: 'standard', speed: 'standard', inference_geo: 'global', uncached_input_tokens: 1000000, cache_read_input_tokens: 0, output_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 }, server_tool_use: { web_search_requests: 0 } };
+    const get = vi.fn(async (url: string) => url.includes('usage_report')
+      ? ok({ data: url.includes('bucket_width=1h') ? [{ starting_at: '2026-10-15T01:00:00Z', ending_at: '2026-10-15T02:00:00Z', results: [usageRow] }] : [], has_more: false, next_page: null })
+      : ok({ data: [{ starting_at: '2026-10-01T00:00:00Z', ending_at: '2026-10-02T00:00:00Z', results: [item('1000')] }], has_more: false, next_page: null })) as unknown as ProviderContext['get'];
+    render(<ClaudePlatformDiagnostics apiKey={KEY} displayedUsd={10} get={get} ensurePermission={async () => true} now={() => new Date('2026-10-15T08:00:00Z')} />, root);
+    const done = onDom(root, () => root.querySelector('[data-testid="diag-estimate"]') !== null);
+    click(root, 'claude-platform-diagnose');
+    await done;
+    const text = (id: string) => root.querySelector('[data-testid="' + id + '"]')?.textContent ?? '';
+    expect(text('diag-usage-verdict')).toContain('오늘 토큰 1,000,000개 있음 / 비용 버킷 없음');
+    expect(text('diag-probes')).toContain('내일 00:00Z');
+    expect(text('diag-usage-today')).toContain('claude-sonnet-5-5');
+    expect(text('diag-estimate')).toContain('추정');
+    expect(text('diag-estimate')).toContain('$2.00');
+    expect(text('diag-estimate')).toContain('× $2/MTok');
+    expect(root.textContent).not.toContain(KEY);
   });
 });

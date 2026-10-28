@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { createSafeFetch } from '../core/safe-fetch';
 import { diagnoseClaudePlatform, DIAGNOSE_MAX_PAGES, type DiagnoseResult } from '../providers/claude-platform-diagnose';
 import { topEntries } from '../providers/cost-summary';
+import { diagnoseUsageExtras, type UsageExtras, type UsageSection } from '../providers/claude-platform-usage-diagnose';
+import { estimateUsageCost, judgeToday, sumTokens, type UsageBucket } from '../providers/claude-platform-usage';
 import type { ProviderContext } from '../providers/types';
 
 const ORIGINS = ['https://api.anthropic.com/*'];
@@ -120,6 +122,89 @@ function Report({ result, displayedUsd }: { result: Extract<DiagnoseResult, { ok
   );
 }
 
+const count = (value: number): string => value.toLocaleString('en-US');
+
+function UsageTable({ title, buckets, hourly }: { title: string; buckets: UsageBucket[]; hourly: boolean }) {
+  const rows = buckets.flatMap((bucket) => bucket.rows.map((row) => ({ bucket, row })));
+  return (
+    <div class="diag-usage-table">
+      <h4>{title}</h4>
+      {rows.length === 0 ? <p class="diag-muted">토큰 사용 기록 없음</p> : (
+        <table class="diag-table">
+          <thead><tr><th>{hourly ? '시각(UTC)' : '날짜(UTC)'}</th><th>모델</th><th>uncached 입력</th><th>캐시 읽기</th><th>캐시 쓰기</th><th>출력</th></tr></thead>
+          <tbody>
+            {rows.map(({ bucket, row }, index) => (
+              <tr key={index}>
+                <td>{hourly ? bucket.startingAt.slice(11, 16) : bucket.startingAt.slice(0, 10)}</td>
+                <td title={row.model}>{row.model}</td>
+                <td>{count(row.uncached)}</td><td>{count(row.cacheRead)}</td><td>{count(row.cache5m + row.cache1h)}</td><td>{count(row.output)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function UsageSectionView({ title, section, hourly, testId }: { title: string; section: UsageSection; hourly: boolean; testId: string }) {
+  if (!section.ok) return <div data-testid={testId}><h4>{title}</h4><p class="diag-note">{section.message}</p></div>;
+  return (
+    <div data-testid={testId}>
+      <UsageTable title={title} buckets={section.buckets} hourly={hourly} />
+      <p class="diag-params">
+        요청: {section.params} · 페이지 {section.pages}개 · 버킷 {section.buckets.length}개 · has_more {section.hasMore ? '예' : '아니오'} · 응답 필드: {section.responseKeys.join(', ')}
+      </p>
+    </div>
+  );
+}
+
+function UsagePanel({ extras, cost }: { extras: UsageExtras; cost: Extract<DiagnoseResult, { ok: true }> }) {
+  const todayTokens = extras.usageToday.ok ? sumTokens(extras.usageToday.buckets) : undefined;
+  const costBucket = cost.summary.bucketTotals.find((bucket) => bucket.startingAt.slice(0, 10) === extras.today);
+  const estimate = extras.usageToday.ok ? estimateUsageCost(extras.usageToday.buckets) : undefined;
+  return (
+    <div class="diag-usage" data-testid="diag-usage">
+      <h4>토큰 사용량 보고서 (usage_report/messages) 와 비교</h4>
+      <p class="diag-today" data-testid="diag-usage-verdict">{judgeToday(todayTokens, costBucket)}</p>
+      <h4>cost_report ending_at 비교 (읽기 전용 3회)</h4>
+      <div class="diag-probes" data-testid="diag-probes">
+        {extras.probes.map((probe) => (
+          <div class="diag-row" key={probe.label}>
+            <span>{probe.label} · ending_at={probe.endingAt}</span>
+            <span>
+              {probe.ok
+                ? '버킷 ' + probe.buckets + '개 · 마지막 ' + (probe.lastStartingAt?.slice(0, 10) ?? '없음') + ' · 오늘 ' + (probe.includesToday ? '포함' : '미포함') + ' · ' + usd(probe.totalUsd)
+                : probe.message}
+            </span>
+          </div>
+        ))}
+      </div>
+      <UsageSectionView title={'오늘(UTC ' + extras.today + ') 시간대별 토큰'} section={extras.usageToday} hourly testId="diag-usage-today" />
+      <UsageSectionView title="이번 달 일별 토큰" section={extras.usageMonth} hourly={false} testId="diag-usage-month" />
+      {estimate && (
+        <div class="diag-estimate" data-testid="diag-estimate">
+          <h4>오늘 토큰 × 단가 추정액 (추정 · 패널 값 아님)</h4>
+          {estimate.lines.length === 0 && <p class="diag-muted">오늘 토큰 사용 기록이 없어 추정하지 않습니다</p>}
+          {estimate.lines.map((line, index) => (
+            <p class="diag-params" key={index}>
+              <strong>{line.model}</strong>{' '}
+              {line.kind === 'estimated'
+                ? '(' + line.priceLabel + ') 추정 ' + usd(line.usd) + ' = ' + line.formula
+                : line.reason + ' (토큰 ' + count(line.tokens.uncached + line.tokens.cacheRead + line.tokens.cache5m + line.tokens.cache1h + line.tokens.output) + '개)'}
+            </p>
+          ))}
+          {estimate.webSearchRequests > 0 && (
+            <p class="diag-muted">웹 검색 {count(estimate.webSearchRequests)}회는 토큰 비용이 아니라 추정에서 제외했습니다.</p>
+          )}
+          <p class="diag-today">추정 합계 {usd(estimate.totalUsd)} (추정, 청구액 아님)</p>
+          <p class="diag-muted">단가: platform.claude.com/docs/en/about-claude/pricing 2026-10-28 확인, 표준 티어·global·standard speed 가정, MTok = 100만 토큰. 모델 ID는 공식 가격표의 모델 이름에서 유추했습니다.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ClaudePlatformDiagnostics(props: {
   apiKey: string;
   displayedUsd?: number;
@@ -132,12 +217,14 @@ export function ClaudePlatformDiagnostics(props: {
   now?: () => Date;
 }) {
   const [running, setRunning] = useState(false);
+  const [extras, setExtras] = useState<UsageExtras | undefined>();
   const [message, setMessage] = useState('');
   const [result, setResult] = useState<Extract<DiagnoseResult, { ok: true }> | undefined>();
 
   const run = async (auto = false) => {
     setMessage('');
     setResult(undefined);
+    setExtras(undefined);
     if (!props.apiKey.trim()) {
       setMessage(auto ? '권한/키가 없어 자동 실행하지 않음' : '먼저 Admin API 키를 입력하세요');
       return;
@@ -150,13 +237,16 @@ export function ClaudePlatformDiagnostics(props: {
         setMessage(auto ? '권한/키가 없어 자동 실행하지 않음' : 'api.anthropic.com 접근 권한이 필요합니다');
         return;
       }
-      const outcome = await diagnoseClaudePlatform({
-        apiKey: props.apiKey.trim(),
-        now: (props.now ?? (() => new Date()))(),
-        get: props.get ?? createSafeFetch(),
-      });
-      if (outcome.ok) setResult(outcome);
-      else setMessage(outcome.message);
+      const apiKey = props.apiKey.trim();
+      const now = (props.now ?? (() => new Date()))();
+      const get = props.get ?? createSafeFetch();
+      const outcome = await diagnoseClaudePlatform({ apiKey, now, get });
+      if (outcome.ok) {
+        // Token usage and ending_at comparisons only add context to a readable cost report.
+        const found = await diagnoseUsageExtras({ apiKey, now, get });
+        setExtras(found);
+        setResult(outcome);
+      } else setMessage(outcome.message);
     } finally {
       setRunning(false);
     }
@@ -179,6 +269,7 @@ export function ClaudePlatformDiagnostics(props: {
       </div>
       {message && <p class="warning" role="status">{message}</p>}
       {result && <Report result={result} displayedUsd={props.displayedUsd} />}
+      {result && extras && <UsagePanel extras={extras} cost={result} />}
     </section>
   );
 }

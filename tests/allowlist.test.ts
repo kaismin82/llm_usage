@@ -20,6 +20,7 @@ const allowed = [
   'http://localhost:4000/user/daily/activity/aggregated?start_date=2026-09-01',
   'https://gw.example.com/litellm/spend/logs',
   'https://api.anthropic.com/v1/organizations/cost_report?starting_at=2026-10-01T00%3A00%3A00Z&limit=31',
+  'https://api.anthropic.com/v1/organizations/usage_report/messages?starting_at=2026-10-28T00%3A00%3A00Z&bucket_width=1h',
 ];
 
 const blocked = [
@@ -28,6 +29,8 @@ const blocked = [
   'https://chatgpt.com/backend-api/wham/rate-limit-reset-credits/consume',
   'https://api.anthropic.com/api/organizations/abc/reset_rate_limits',
   'https://api.anthropic.com/v1/messages',
+  'https://api.anthropic.com/v1/organizations/usage_report/claude_code',
+  'https://api.anthropic.com/v1/organizations/usage_report/messages/extra',
   'http://api.anthropic.com/v1/organizations/cost_report',
   'https://api.anthropic.com/api/oauth/usage',
   'https://claude.ai/api/organizations/0f9a7c1e-1111-2222-3333-444455556666/reset_rate_limits',

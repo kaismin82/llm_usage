@@ -29,7 +29,7 @@ export type DiagnoseResult =
   }
   | { ok: false; message: string };
 
-function failureMessage(error: unknown): string {
+export function failureMessage(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
   if (name === 'TimeoutError') return '시간 초과: api.anthropic.com 응답이 없습니다';
   if (name === 'NetworkError') return '연결 실패: 호스트 권한(api.anthropic.com)과 네트워크를 확인하세요';

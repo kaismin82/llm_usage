@@ -23,8 +23,8 @@ const FIXED_HOST_PATHS: Record<string, RegExp[]> = {
   'api.poe.com': [/^\/usage\/current_balance$/, /^\/usage\/points_history$/],
   'openrouter.ai': [/^\/api\/v1\/(key|keys|activity|credits)$/],
   'status.claude.com': [/^\/api\/v2\/(incidents|summary)\.json$/],
-  // Anthropic Admin API: read-only cost reporting. Inference and every other path stay blocked.
-  'api.anthropic.com': [/^\/v1\/organizations\/cost_report$/],
+  // Anthropic Admin API: read-only cost and messages-usage reporting. Inference and every other path stay blocked.
+  'api.anthropic.com': [/^\/v1\/organizations\/(cost_report|usage_report\/messages)$/],
 };
 
 const LITELLM_SUFFIX =

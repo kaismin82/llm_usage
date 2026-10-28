@@ -99,4 +99,78 @@ describe('claudePlatformAdapter', () => {
     });
     expect(await claudePlatformAdapter.fetchSnapshot(schemaCtx)).toMatchObject({ status: 'schema_changed' });
   });
+
+  describe('confirmed cost plus an estimate for the span the cost report has not reached', () => {
+    const NOW = new Date('2026-10-28T04:37:54Z');
+    const USAGE = 'https://api.anthropic.com/v1/organizations/usage_report/messages';
+    const costThrough = (endingAt: string, amount = '2362') => ({
+      data: [{ starting_at: '2026-10-27T00:00:00Z', ending_at: endingAt, results: [{ amount, currency: 'USD' }] }],
+      has_more: false, next_page: null,
+    });
+    const row = (extra: Record<string, unknown> = {}) => ({
+      model: 'claude-sonnet-5-5', service_tier: 'standard', speed: 'standard', inference_geo: 'global',
+      uncached_input_tokens: 0, cache_read_input_tokens: 0, output_tokens: 0,
+      cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 }, server_tool_use: { web_search_requests: 0 }, ...extra,
+    });
+    const usage = (buckets: Array<{ start: string; rows: unknown[] }>) => ({
+      data: buckets.map((bucket) => ({ starting_at: bucket.start, ending_at: bucket.start, results: bucket.rows })), has_more: false, next_page: null,
+    });
+    const ctxFor = (cost: unknown, usageReply: { status?: number; json?: unknown }, limit = 200) => makeCtx({
+      provider: 'claude_platform', now: NOW, providerSettings: { apiKey: 'sk-ant-admin01-test', monthlyLimitUsd: limit },
+      routes: [{ match: USAGE, reply: usageReply }, { match: COST, reply: { json: cost } }],
+    });
+
+    it('adds the estimate to the confirmed total, splits it in the label and ignores buckets the cost report already covers', async () => {
+      const ctx = ctxFor(costThrough('2026-10-28T00:00:00Z'), { json: usage([
+        { start: '2026-10-27T23:00:00Z', rows: [row({ output_tokens: 1_000_000 })] },
+        { start: '2026-10-28T01:00:00Z', rows: [row({ output_tokens: 1_000_000 })] },
+      ]) });
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctx);
+      const month = snapshot.windows[0];
+      expect(snapshot.status).toBe('ok');
+      expect(month?.usedAmount).toBeCloseTo(33.62, 6);
+      expect(month?.usedPercent).toBeCloseTo(16.81, 6);
+      expect(month?.label).toBe('이번달 (UTC) · 확정 $23.62 + 오늘 추정 $10.00');
+      expect(snapshot.balance).toMatchObject({ label: '남은 한도 (추정 포함)' });
+      expect(snapshot.balance?.amount).toBeCloseTo(166.38, 6);
+      const usageCall = ctx.calls[1];
+      expect(usageCall?.url).toContain('starting_at=2026-10-28T00:00:00Z');
+      expect(usageCall?.url).toContain('bucket_width=1h');
+      expect(usageCall?.url).toContain('group_by[]=service_tier');
+      expect(usageCall?.init?.credentials).toBe('omit');
+    });
+
+    it('does not ask for or add an estimate once the cost report covers the present', async () => {
+      const ctx = ctxFor(costThrough('2026-10-29T00:00:00Z'), { json: usage([{ start: '2026-10-28T01:00:00Z', rows: [row({ output_tokens: 1_000_000 })] }]) });
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctx);
+      expect(ctx.calls).toHaveLength(1);
+      expect(snapshot.windows[0]).toMatchObject({ label: '이번달 (UTC)', usedAmount: 23.62 });
+      expect(snapshot.balance?.label).toBe('남은 한도');
+    });
+
+    it('shows only the confirmed value and says so when the usage report cannot be read', async () => {
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctxFor(costThrough('2026-10-28T00:00:00Z'), { status: 401, json: {} }));
+      expect(snapshot.status).toBe('ok');
+      expect(snapshot.windows[0]?.usedAmount).toBeCloseTo(23.62, 6);
+      expect(snapshot.windows[0]?.label).toBe('이번달 (UTC) · 확정만 (오늘 추정 불가)');
+    });
+
+    it('counts non-standard rows, unknown models and web searches as excluded instead of pricing them', async () => {
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctxFor(costThrough('2026-10-28T00:00:00Z'), { json: usage([{ start: '2026-10-28T01:00:00Z', rows: [
+        row({ output_tokens: 1_000_000, server_tool_use: { web_search_requests: 2 } }),
+        row({ output_tokens: 5000, service_tier: 'priority' }),
+        row({ model: 'claude-future-9', output_tokens: 5000 }),
+      ] }]) }));
+      expect(snapshot.windows[0]?.usedAmount).toBeCloseTo(33.62, 6);
+      expect(snapshot.windows[0]?.label).toBe('이번달 (UTC) · 확정 $23.62 + 오늘 추정 $10.00 (추정 제외 3개)');
+    });
+
+    it('uses daily buckets and a different label when the cost report is more than a week behind', async () => {
+      const ctx = ctxFor(costThrough('2026-10-10T00:00:00Z'), { json: usage([{ start: '2026-10-12T00:00:00Z', rows: [row({ output_tokens: 1_000_000 })] }]) });
+      const snapshot = await claudePlatformAdapter.fetchSnapshot(ctx);
+      expect(ctx.calls[1]?.url).toContain('bucket_width=1d');
+      expect(ctx.calls[1]?.url).toContain('ending_at=2026-11-01T00:00:00.000Z');
+      expect(snapshot.windows[0]?.label).toBe('이번달 (UTC) · 확정 $23.62 + 미반영 구간 추정 $10.00');
+    });
+  });
 });
