@@ -36,6 +36,7 @@ import {
 import { CustomProviders } from './CustomProviders';
 import { PhoneRelay } from './PhoneRelay';
 import { applyImportHash } from './import-hash';
+import { ClaudePlatformDiagnostics } from './ClaudePlatformDiagnostics';
 
 type FocusedKeys = Partial<Record<ProviderId, boolean>>;
 
@@ -253,6 +254,16 @@ export function App() {
     setSettings((s) => ({ ...s, notifications: !s.notifications }));
     setDirty(true);
   }, [settings.notifications]);
+
+  // options.html#claude-platform-diagnostics scrolls the diagnosis section into view once it is rendered.
+  const diagnosticsScrolled = useRef(false);
+  useEffect(() => {
+    if (diagnosticsScrolled.current || window.location.hash !== '#claude-platform-diagnostics') return;
+    const section = document.getElementById('claude-platform-diagnostics');
+    if (!section) return;
+    diagnosticsScrolled.current = true;
+    section.scrollIntoView?.({ block: 'start' });
+  }, [settings, snapshots]);
 
   useEffect(() => {
     const hash = window.location.hash;
@@ -482,6 +493,10 @@ export function App() {
               Claude Platform(Anthropic API) 조직의 사용액입니다. claude.ai 구독 계정의 Extra usage와는
               별개이며 합산되지 않습니다. 한도는 매월 1일(UTC)에 초기화되고 이월되지 않습니다. 0으로 두면 한도 없이 사용량만 표시합니다.
             </p>
+            <ClaudePlatformDiagnostics
+              apiKey={ps.apiKey ?? ''}
+              displayedUsd={snapshots.claude_platform?.windows.find((window) => window.kind === 'month')?.usedAmount}
+            />
             {(ps.apiKey ?? '').startsWith('sk-ant-admin') && (
               <p class="warning">Admin 키(sk-ant-admin)로 설정되었습니다. Console의 Settings → Admin keys에서 발급한 키입니다.</p>
             )}

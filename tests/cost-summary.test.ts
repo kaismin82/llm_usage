@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeCostBuckets } from '../src/providers/cost-summary';
+import { summarizeCostBuckets, topEntries } from '../src/providers/cost-summary';
 
 const item = (amount: string, extra: Record<string, unknown> = {}) => ({ amount, currency: 'USD', ...extra });
 
@@ -23,6 +23,21 @@ describe('summarizeCostBuckets', () => {
     expect(summary.byWorkspace['wrkspc_a']).toBeCloseTo(11.2345, 6);
     expect(summary.byWorkspace['default workspace']).toBeCloseTo(0.5, 6);
     expect(summary.byModel['(no model)']).toBeCloseTo(0.5, 6);
+    expect(summary.buckets).toBe(3);
+    expect(summary.lastCostBucket).toEqual({ startingAt: '2026-10-03T00:00:00Z' });
+  });
+
+  it('keeps the last costed bucket with its end and reports none when nothing was billed', () => {
+    const billed = summarizeCostBuckets([
+      { starting_at: '2026-10-01T00:00:00Z', ending_at: '2026-10-02T00:00:00Z', results: [item('10')] },
+      { starting_at: '2026-10-02T00:00:00Z', ending_at: '2026-10-03T00:00:00Z', results: [] },
+    ])!;
+    expect(billed.lastCostBucket).toEqual({ startingAt: '2026-10-01T00:00:00Z', endingAt: '2026-10-02T00:00:00Z' });
+    expect(summarizeCostBuckets([{ starting_at: '2026-10-01T00:00:00Z', results: [] }])!.lastCostBucket).toBeUndefined();
+  });
+
+  it('returns the largest entries and the remainder', () => {
+    expect(topEntries({ a: 1, b: 5, c: 3, d: 2 }, 2)).toEqual({ top: [['b', 5], ['c', 3]], restCount: 2, restUsd: 3 });
   });
 
   it('refuses to total anything it cannot read as non-negative USD', () => {

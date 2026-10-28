@@ -65,6 +65,7 @@ async function main(): Promise<void> {
     return;
   }
   console.log('Cost API, UTC month ' + label + ': total ' + usd(summary.totalUsd) + ' over ' + buckets.length + ' daily buckets (' + summary.items + ' items)');
+  console.log('Last bucket with a cost: ' + (summary.lastCostBucket ? summary.lastCostBucket.startingAt + (summary.lastCostBucket.endingAt ? ' ~ ' + summary.lastCostBucket.endingAt : '') : 'none'));
   printGroup('By day (UTC)', Object.fromEntries(Object.entries(summary.byDay).sort()));
   printGroup('By cost type', summary.byCostType);
   printGroup('By workspace', summary.byWorkspace);

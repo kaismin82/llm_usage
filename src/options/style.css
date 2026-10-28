@@ -474,3 +474,19 @@ body {
 }
 
 .import-banner { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-2); font-size: 13px; }
+
+
+/* Claude Platform usage diagnosis (v0.2.8): one compact block so it fits a single screenshot. */
+.diag { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.diag-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.diag-muted { color: var(--text-2); font-size: 12px; }
+.diag-report { margin-top: 12px; display: grid; gap: 10px; font-size: 12px; }
+.diag-report h4 { margin: 4px 0 2px; font-size: 12px; color: var(--text-2); }
+.diag-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.diag-grid > div { display: grid; gap: 2px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
+.diag-label { color: var(--text-2); font-size: 11px; }
+.diag-params { color: var(--text-2); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; margin: 0; }
+.diag-days { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 14px; }
+.diag-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.diag-row { display: flex; justify-content: space-between; gap: 8px; padding: 1px 0; font-variant-numeric: tabular-nums; }
+.diag-key { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
