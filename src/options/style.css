@@ -472,3 +472,5 @@ body {
   text-decoration: underline;
   margin-left: var(--space-2, 8px);
 }
+
+.import-banner { margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text-2); font-size: 13px; }

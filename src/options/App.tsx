@@ -35,6 +35,7 @@ import {
 } from './logic';
 import { CustomProviders } from './CustomProviders';
 import { PhoneRelay } from './PhoneRelay';
+import { applyImportHash } from './import-hash';
 
 type FocusedKeys = Partial<Record<ProviderId, boolean>>;
 
@@ -47,6 +48,7 @@ const SITE_LINKS: Partial<Record<ProviderId, { url: string; label: string }>> = 
 export function App() {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [snapshots, setSnapshots] = useState<SnapshotMap>({});
+  const [importMessage, setImportMessage] = useState('');
   const [testingProvider, setTestingProvider] = useState<ProviderId | null>(null);
   const [testResult, setTestResult] = useState<Partial<Record<ProviderId, string>>>({});
   const [permError, setPermError] = useState<Partial<Record<ProviderId, string>>>({});
@@ -251,6 +253,19 @@ export function App() {
     setSettings((s) => ({ ...s, notifications: !s.notifications }));
     setDirty(true);
   }, [settings.notifications]);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#import=')) return;
+    void (async () => {
+      const result = await applyImportHash(hash);
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      setImportMessage(result.message);
+      const [s, sn] = await Promise.all([getSettings(), getSnapshots()]);
+      if (!dirtyRef.current) setSettings(s);
+      setSnapshots(sn);
+    })();
+  }, []);
 
   const handleClearData = useCallback(async () => {
     if (!confirm('모든 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.')) return;
@@ -539,6 +554,9 @@ export function App() {
       <header class="header">
         <h1>LLM Usage Glance 설정</h1>
       </header>
+      {importMessage && (
+        <div class="import-banner" role="status" aria-live="polite">{importMessage}</div>
+      )}
 
       <section class="section">
         <h2>프로바이더</h2>
