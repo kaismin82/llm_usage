@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createTabBridge, TAB_RELOAD_COOLDOWN_MS, type TabBridgeApi } from '../src/core/tab-bridge';
+import { statusFromHttp } from '../src/providers/util';
+import { createTabBridge, TAB_RELOAD_COOLDOWN_MS, type PageProbe, type TabBridgeApi } from '../src/core/tab-bridge';
 
 function makeApi(result?: { status: number; headers: Record<string, string>; text: string }): TabBridgeApi {
   return {
@@ -73,12 +74,21 @@ describe('createTabBridge', () => {
     const good = { status: 200, headers: {}, text: '{"usage":1}' };
     const html = { status: 200, headers: {}, text: '<html>offline</html>' };
 
-    function makeMulti(tabs: Array<{ id?: number; status?: string; discarded?: boolean }>, script: (tabId: number, call: number) => unknown) {
+    const HEALTHY_PAGE: PageProbe = { readyState: 'complete', bodyLength: 200 };
+    const STUCK_PAGE: PageProbe = { readyState: 'loading', bodyLength: 0 };
+
+    function makeMulti(
+      tabs: Array<{ id?: number; status?: string; discarded?: boolean }>,
+      script: (tabId: number, call: number) => unknown,
+      probe: PageProbe | null = HEALTHY_PAGE,
+    ) {
       const calls = new Map<number, number>();
       const order: string[] = [];
       const reload = vi.fn().mockResolvedValue(undefined);
       const activate = vi.fn(async (id: number) => { order.push(`activate:${id}`); });
       const waitForComplete = vi.fn(async (id: number) => { order.push(`wait:${id}`); });
+      const navigate = vi.fn(async (id: number, _url: string) => { order.push(`navigate:${id}`); });
+      const probePage = vi.fn(async (id: number) => { order.push(`probe:${id}`); return probe; });
       const executeScript = vi.fn(async (injection: { target: { tabId: number } }) => {
         const id = injection.target.tabId;
         order.push(`exec:${id}`);
@@ -89,11 +99,71 @@ describe('createTabBridge', () => {
         return [{ result: value }];
       });
       const api = {
-        tabs: { query: vi.fn().mockResolvedValue(tabs), reload, activate, waitForComplete },
-        scripting: { executeScript },
+        tabs: { query: vi.fn().mockResolvedValue(tabs), reload, activate, navigate, waitForComplete },
+        scripting: { executeScript, probePage },
       } as unknown as TabBridgeApi;
-      return { api, reload, activate, waitForComplete, executeScript, order };
+      return { api, reload, activate, navigate, waitForComplete, executeScript, order };
     }
+
+    it('navigates to the site root once when a reload leaves the page stuck, then succeeds', async () => {
+      const { api, reload, navigate, order } = makeMulti(
+        [{ id: 7, status: 'complete' }],
+        (_id, n) => (n < 3 ? html : good),
+        STUCK_PAGE,
+      );
+
+      const result = await createTabBridge(api).fetchViaTab(URL, {});
+
+      expect(result).toMatchObject({ status: 200, json: { usage: 1 } });
+      expect(reload).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(navigate).toHaveBeenCalledWith(7, 'https://claude.ai/');
+      expect(order).toEqual(['exec:7', 'wait:7', 'exec:7', 'probe:7', 'navigate:7', 'wait:7', 'exec:7']);
+    });
+
+    it('does not navigate when the reload already recovered the page', async () => {
+      const { api, navigate } = makeMulti([{ id: 7, status: 'complete' }], (_id, n) => (n === 1 ? html : good), STUCK_PAGE);
+
+      const result = await createTabBridge(api).fetchViaTab(URL, {});
+
+      expect(result).toMatchObject({ json: { usage: 1 } });
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('does not navigate a complete page that has content (a real non-JSON page)', async () => {
+      const { api, navigate } = makeMulti([{ id: 7, status: 'complete' }], () => html, HEALTHY_PAGE);
+
+      await createTabBridge(api).fetchViaTab(URL, {});
+
+      expect(navigate).not.toHaveBeenCalled();
+    });
+
+    it('shares the cooldown between reload and navigate', async () => {
+      let clock = 1_000;
+      const { api, reload, navigate } = makeMulti([{ id: 7, status: 'complete' }], () => html, STUCK_PAGE);
+      const bridge = createTabBridge(api, () => clock);
+
+      await bridge.fetchViaTab(URL, {});
+      clock += TAB_RELOAD_COOLDOWN_MS - 1;
+      await bridge.fetchViaTab(URL, {});
+      expect([reload.mock.calls.length, navigate.mock.calls.length]).toEqual([1, 1]);
+
+      clock += 1;
+      await bridge.fetchViaTab(URL, {});
+      expect([reload.mock.calls.length, navigate.mock.calls.length]).toEqual([2, 2]);
+    });
+
+    it('maps a Cloudflare challenge page to the challenge status, distinct from error', async () => {
+      const challenge = { status: 403, headers: { 'cf-mitigated': 'challenge' }, text: '<html>Just a moment...</html>' };
+      const { api, reload, navigate } = makeMulti([{ id: 7, status: 'complete' }], () => challenge, STUCK_PAGE);
+
+      const result = await createTabBridge(api).fetchViaTab(URL, {});
+
+      expect(result).toMatchObject({ challenge: true });
+      expect(statusFromHttp(result!)).toBe('challenge');
+      expect(reload).not.toHaveBeenCalled();
+      expect(navigate).not.toHaveBeenCalled();
+    });
 
     it('activates a fully discarded tab, waits for load, then fetches', async () => {
       const { api, activate, reload, order } = makeMulti([{ id: 5, discarded: true, status: 'unloaded' }], () => good);

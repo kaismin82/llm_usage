@@ -9,7 +9,7 @@ import type {
 } from '../providers/types';
 import { PROVIDER_IDS } from '../providers/types';
 import { errorSnapshot } from '../providers/util';
-import { nextAttemptAt } from './backoff';
+import { CHALLENGE_BACKOFF_MAX_MS, nextAttemptAt } from './backoff';
 import { originsFor } from './permissions';
 import { detectResetEvents } from './reset-detector';
 import type { SnapshotMap } from './store';
@@ -47,7 +47,11 @@ export function dueProviders(
     const entry = state[id];
     if (entry === undefined) return true;
     if (entry.nextDueAt === null) return false;
-    if (Date.parse(entry.nextDueAt) > time) return false;
+    // A challenge state persisted by an older, hours-long breaker must not outlast the current cap.
+    let dueAt = Date.parse(entry.nextDueAt);
+    const last = snapshots[id];
+    if (last?.status === 'challenge') dueAt = Math.min(dueAt, Date.parse(last.attemptedAt) + CHALLENGE_BACKOFF_MAX_MS);
+    if (dueAt > time) return false;
     // A stale nextDueAt must not refresh faster than the configured interval:
     // pace scheduling on the last successful observation as well.
     const intervalMs = settings.providers[id].intervalMin * 60_000;

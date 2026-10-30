@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { isUserIdle } from '../src/core/idle';
 import { mergeSettings } from '../src/core/settings';
-import { needsRefreshOnOpen, selectRefreshTargets, withinCooldown } from '../src/core/refresh-policy';
+import { needsRefreshOnOpen, selectRefreshTargets, shouldRetryOnTabLoad, TAB_LOAD_RETRY_MS, withinCooldown } from '../src/core/refresh-policy';
 import { clampInterval } from '../src/options/logic';
 import type { AppSettings } from '../src/providers/types';
 import { baseSnapshot } from '../src/providers/util';
@@ -71,5 +71,25 @@ describe('isUserIdle', () => {
     expect(await isUserIdle()).toBe(false);
     queryState.mockRejectedValueOnce(new Error('boom'));
     expect(await isUserIdle()).toBe(false);
+  });
+});
+
+describe('shouldRetryOnTabLoad', () => {
+  it('resets the breaker on a finished page load for challenge, error and auth_required', () => {
+    for (const status of ['challenge', 'error', 'auth_required'] as const) {
+      expect(shouldRetryOnTabLoad(status, undefined, NOW.getTime())).toBe(true);
+    }
+  });
+
+  it('ignores healthy or intentionally paused providers', () => {
+    for (const status of ['ok', 'stale', 'not_configured', 'rate_limited'] as const) {
+      expect(shouldRetryOnTabLoad(status, undefined, NOW.getTime())).toBe(false);
+    }
+  });
+
+  it('retries at most once per interval', () => {
+    const last = NOW.getTime();
+    expect(shouldRetryOnTabLoad('challenge', last, last + TAB_LOAD_RETRY_MS - 1)).toBe(false);
+    expect(shouldRetryOnTabLoad('challenge', last, last + TAB_LOAD_RETRY_MS)).toBe(true);
   });
 });

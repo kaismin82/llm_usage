@@ -14,14 +14,13 @@ import { PROVIDER_IDS } from '../providers/types';
 import type { ProviderId } from '../providers/types';
 import { isCustomMessage } from '../custom/config';
 import { registerCustomProviders } from '../custom/runtime';
-import { selectRefreshTargets } from '../core/refresh-policy';
+import { selectRefreshTargets, shouldRetryOnTabLoad } from '../core/refresh-policy';
 import { configureIdleDetection, isUserIdle, onUserActive } from '../core/idle';
 import { registerPhoneRelay } from '../phone-relay/runtime';
 import { isPhoneRelayMessage } from '../phone-relay/store';
 
 const SCHEDULE_KEY = 'schedule';
 const TICK_ALARM = 'tick';
-const TAB_RETRY_MS = 300_000;
 
 async function getScheduleState(): Promise<ScheduleState> {
   const stored = await chrome.storage.local.get(SCHEDULE_KEY);
@@ -184,10 +183,9 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
     if (!settings.providers[provider].enabled) return;
     const snapshot = snapshots[provider];
     if (snapshot === undefined) return;
-    // Never retry a challenge on page load: that would add requests while blocked.
-    if (snapshot.status !== 'auth_required') return;
+    // A finished page load resets the backoff/breaker for a non-ok provider (rate-limited per provider).
     const now = Date.now();
-    if (now - (tabPollAt.get(provider) ?? 0) < TAB_RETRY_MS) return;
+    if (!shouldRetryOnTabLoad(snapshot.status, tabPollAt.get(provider), now)) return;
     tabPollAt.set(provider, now);
     await runProvider(provider, { force: true });
   })();

@@ -5,6 +5,10 @@ export interface BackoffOptions {
   maxMs?: number;
 }
 
+// A challenge pauses polling briefly, never for hours: recovery signals (tab load,
+// successful fetch) must not be delayed behind a long breaker.
+export const CHALLENGE_BACKOFF_MAX_MS = 10 * 60_000;
+
 export function backoffDelayMs(failures: number, opts: BackoffOptions = {}): number {
   if (failures <= 0) return 0;
   const baseMs = opts.baseMs ?? 60_000;
@@ -36,8 +40,8 @@ export function nextAttemptAt(
     }
     case 'challenge':
       // Circuit breaker: a bot challenge means further polling hurts the user's
-      // session. Wait at least an hour and back off up to six hours.
-      return new Date(now.getTime() + Math.max(intervalMs, backoffDelayMs(failures, { baseMs: 3_600_000, maxMs: 21_600_000 })));
+      // session. Back off from 5 minutes, capped at CHALLENGE_BACKOFF_MAX_MS.
+      return new Date(now.getTime() + Math.max(intervalMs, backoffDelayMs(failures, { baseMs: 300_000, maxMs: CHALLENGE_BACKOFF_MAX_MS })));
     case 'error':
     case 'schema_changed':
       return new Date(now.getTime() + Math.max(intervalMs, backoffDelayMs(failures)));

@@ -163,6 +163,20 @@ describe('dueProviders', () => {
     expect(dueProviders(settings, state, {}, NOW)).toEqual(['poe']);
   });
 
+  it('does not let a legacy hours-long challenge breaker outlast the current cap', () => {
+    const challenged: SnapshotMap = {
+      claude: {
+        ...baseSnapshot('claude', new Date(NOW.getTime() - 3 * 3_600_000)),
+        status: 'challenge',
+        attemptedAt: new Date(NOW.getTime() - 11 * 60_000).toISOString(),
+      },
+    };
+    const state: ScheduleState = {
+      claude: { nextDueAt: new Date(NOW.getTime() + 6 * 3_600_000).toISOString(), failures: 4 },
+    };
+    expect(dueProviders(settingsFor(['claude']), state, challenged, NOW)).toEqual(['claude']);
+  });
+
   it('ignores disabled providers even without a state entry', () => {
     expect(dueProviders(settingsFor(['claude']), {}, {}, NOW)).toEqual(['claude']);
   });
@@ -396,5 +410,38 @@ describe('runProviders', () => {
     expect(deps.presents[0].snapshots.claude).toBe(next);
     expect(deps.presents[0].snapshots.poe).toBe(existing);
     expect(deps.presents[0].settings).toBe(settings);
+  });
+});
+
+describe('failed attempts stay visible', () => {
+  it('records status and attemptedAt on every failure while fetchedAt keeps the last success', async () => {
+    const lastSuccess = baseSnapshot('claude', new Date('2026-10-01T10:00:00.000Z'));
+    const deps = makeDeps({
+      settings: settingsFor(['claude']),
+      snapshots: { claude: lastSuccess },
+      fetch: async () => { throw new Error('boom'); },
+    });
+
+    await runProviders(['claude'], deps, { force: true });
+
+    expect(deps.saved[0]).toMatchObject({
+      provider: 'claude',
+      status: 'error',
+      attemptedAt: NOW.toISOString(),
+      fetchedAt: lastSuccess.fetchedAt,
+    });
+    expect(deps.states[0].claude?.failures).toBe(1);
+  });
+
+  it('retries a challenged provider within the capped breaker, not hours later', async () => {
+    const deps = makeDeps({
+      settings: settingsFor(['claude']),
+      fetch: async (id) => ({ ...baseSnapshot(id, NOW), status: 'challenge' }),
+    });
+
+    await runProviders(['claude'], deps, { force: true });
+
+    const next = Date.parse(deps.states[0].claude?.nextDueAt ?? '');
+    expect(next - NOW.getTime()).toBeLessThanOrEqual(10 * 60_000);
   });
 });

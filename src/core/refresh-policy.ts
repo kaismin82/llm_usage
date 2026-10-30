@@ -1,6 +1,17 @@
 import type { ProviderSnapshot } from '../providers/types';
 
 export const REFRESH_COOLDOWN_MS = 60_000;
+export const TAB_LOAD_RETRY_MS = 300_000;
+
+/**
+ * A finished page load of the provider's site is the recovery signal for a provider that is not
+ * ok (including a challenge the user just cleared): retry now instead of waiting out its
+ * backoff, at most once per TAB_LOAD_RETRY_MS.
+ */
+export function shouldRetryOnTabLoad(status: ProviderSnapshot['status'], lastPollAt: number | undefined, nowMs: number): boolean {
+  if (status !== 'auth_required' && status !== 'challenge' && status !== 'error') return false;
+  return nowMs - (lastPollAt ?? 0) >= TAB_LOAD_RETRY_MS;
+}
 
 type Attempted = Pick<ProviderSnapshot, 'attemptedAt'>;
 

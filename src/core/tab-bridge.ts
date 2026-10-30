@@ -8,6 +8,11 @@ interface TabFetchResponse {
   text: string;
 }
 
+export interface PageProbe {
+  readyState: string;
+  bodyLength: number;
+}
+
 interface TabInfo {
   id?: number;
   status?: string;
@@ -20,6 +25,8 @@ export interface TabBridgeApi {
     reload?(tabId: number): Promise<void>;
     /** Activating a discarded tab makes Chromium load it; a reload alone is deferred until activation. */
     activate?(tabId: number): Promise<void>;
+    /** Same-site navigation of an existing tab: the last resort for a renderer stuck on a blank page. */
+    navigate?(tabId: number, url: string): Promise<void>;
     /** Resolves once the tab finished loading or the bound elapsed; never rejects. */
     waitForComplete?(tabId: number, timeoutMs: number): Promise<void>;
   };
@@ -30,6 +37,8 @@ export interface TabBridgeApi {
       func: (url: string, headers: Record<string, string>, timeoutMs: number) => Promise<TabFetchResponse>;
       args: [string, Record<string, string>, number];
     }): Promise<Array<{ result?: TabFetchResponse }>>;
+    /** Bounded readiness probe; null when the page cannot run the probe at all. Never rejects. */
+    probePage?(tabId: number): Promise<PageProbe | null>;
   };
 }
 
@@ -37,8 +46,14 @@ export interface TabBridge {
   fetchViaTab(url: string, init: HttpRequestInit): Promise<HttpResult | null>;
 }
 
+// One cooldown per tab covers the whole recovery chain (activate/reload, then navigate).
 export const TAB_RELOAD_COOLDOWN_MS = 10 * 60_000;
 const TAB_RELOAD_WAIT_MS = 30_000;
+const TAB_PROBE_TIMEOUT_MS = 5_000;
+
+function probePageInTab(): PageProbe {
+  return { readyState: document.readyState, bodyLength: document.body?.innerText?.trim().length ?? 0 };
+}
 
 function chromeApi(): TabBridgeApi {
   return {
@@ -46,6 +61,7 @@ function chromeApi(): TabBridgeApi {
       query: (queryInfo) => chrome.tabs.query(queryInfo),
       reload: (tabId) => chrome.tabs.reload(tabId),
       activate: async (tabId) => { await chrome.tabs.update(tabId, { active: true }); },
+      navigate: async (tabId, url) => { await chrome.tabs.update(tabId, { url }); },
       waitForComplete: (tabId, timeoutMs) => new Promise<void>((resolve) => {
         const finish = () => {
           clearTimeout(timer);
@@ -61,6 +77,20 @@ function chromeApi(): TabBridgeApi {
     },
     scripting: {
       executeScript: (injection) => chrome.scripting.executeScript(injection),
+      probePage: async (tabId) => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          const results = await Promise.race([
+            chrome.scripting.executeScript({ target: { tabId }, world: 'ISOLATED', func: probePageInTab }),
+            new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), TAB_PROBE_TIMEOUT_MS); }),
+          ]);
+          return results?.[0]?.result ?? null;
+        } catch {
+          return null;
+        } finally {
+          clearTimeout(timer);
+        }
+      },
     },
   };
 }
@@ -83,8 +113,15 @@ function isUsable(result: HttpResult): boolean {
   return result.json !== undefined || result.challenge || !ok;
 }
 
+// A page that cannot run the probe, is not complete, or has no content is a stuck renderer.
+// A complete page with content that still answers non-JSON is a real page (sign-in, challenge).
+async function isStuckPage(bridgeApi: TabBridgeApi, tabId: number): Promise<boolean> {
+  const probe = (await bridgeApi.scripting.probePage?.(tabId)) ?? null;
+  return probe === null || probe.readyState !== 'complete' || probe.bodyLength === 0;
+}
+
 export function createTabBridge(api?: TabBridgeApi, now: () => number = Date.now): TabBridge {
-  const lastReloadAt = new Map<number, number>();
+  const lastRecoveryAt = new Map<number, number>();
 
   async function attempt(bridgeApi: TabBridgeApi, tabId: number, url: string, init: HttpRequestInit): Promise<HttpResult | null> {
     try {
@@ -99,6 +136,42 @@ export function createTabBridge(api?: TabBridgeApi, now: () => number = Date.now
     } catch {
       return null;
     }
+  }
+
+  function cooledDown(tabId: number): boolean {
+    const last = lastRecoveryAt.get(tabId);
+    return last === undefined || now() - last >= TAB_RELOAD_COOLDOWN_MS;
+  }
+
+  // Recovery chain for one tab: activate (discarded) or reload, retry; if the page is still
+  // stuck, navigate to the site root once, retry. Returns the best answer, usable or not.
+  async function recover(
+    bridgeApi: TabBridgeApi,
+    tabId: number,
+    kind: 'activate' | 'reload',
+    origin: string,
+    url: string,
+    init: HttpRequestInit,
+  ): Promise<HttpResult | null> {
+    lastRecoveryAt.set(tabId, now());
+    let latest: HttpResult | null = null;
+    try {
+      if (kind === 'activate') await bridgeApi.tabs.activate?.(tabId);
+      else await bridgeApi.tabs.reload?.(tabId);
+      await bridgeApi.tabs.waitForComplete?.(tabId, TAB_RELOAD_WAIT_MS);
+      latest = await attempt(bridgeApi, tabId, url, init);
+      if (latest && isUsable(latest)) return latest;
+
+      if (bridgeApi.tabs.navigate && (await isStuckPage(bridgeApi, tabId))) {
+        await bridgeApi.tabs.navigate(tabId, `${origin}/`);
+        await bridgeApi.tabs.waitForComplete?.(tabId, TAB_RELOAD_WAIT_MS);
+        const navigated = await attempt(bridgeApi, tabId, url, init);
+        if (navigated) latest = navigated;
+      }
+    } catch {
+      // recovery failed; fall through to the best answer seen so far
+    }
+    return latest;
   }
 
   return {
@@ -128,40 +201,21 @@ export function createTabBridge(api?: TabBridgeApi, now: () => number = Date.now
           fallback ??= result;
         }
 
-        // No healthy tab answered. A discarded tab is revived by activation (the reload cooldown is
-        // shared, so this never repeats within the cooldown); it only loads once activated.
+        // No healthy tab answered. A discarded tab is revived by activation; it only loads once activated.
         const revive = discardedIds[0];
-        if (revive !== undefined && bridgeApi.tabs.activate) {
-          const lastRevive = lastReloadAt.get(revive);
-          if (lastRevive === undefined || now() - lastRevive >= TAB_RELOAD_COOLDOWN_MS) {
-            lastReloadAt.set(revive, now());
-            try {
-              await bridgeApi.tabs.activate(revive);
-              await bridgeApi.tabs.waitForComplete?.(revive, TAB_RELOAD_WAIT_MS);
-              const revived = await attempt(bridgeApi, revive, url, init);
-              if (revived && isUsable(revived)) return revived;
-              fallback ??= revived;
-            } catch {
-              // activation failed; fall through to the existing behavior
-            }
-          }
+        if (revive !== undefined && bridgeApi.tabs.activate && cooledDown(revive)) {
+          const revived = await recover(bridgeApi, revive, 'activate', origin, url, init);
+          if (revived && isUsable(revived)) return revived;
+          fallback ??= revived;
         }
         if (ids.length === 0) return fallback;
 
         // Every candidate failed or showed a non-JSON page: reload the first one, at most once per cooldown.
         const target = ids[0];
-        const last = lastReloadAt.get(target);
-        if (bridgeApi.tabs.reload && (last === undefined || now() - last >= TAB_RELOAD_COOLDOWN_MS)) {
-          lastReloadAt.set(target, now());
-          try {
-            await bridgeApi.tabs.reload(target);
-            await bridgeApi.tabs.waitForComplete?.(target, TAB_RELOAD_WAIT_MS);
-            const retried = await attempt(bridgeApi, target, url, init);
-            if (retried && isUsable(retried)) return retried;
-            fallback ??= retried;
-          } catch {
-            // reload failed; fall through to the existing behavior
-          }
+        if (bridgeApi.tabs.reload && cooledDown(target)) {
+          const reloaded = await recover(bridgeApi, target, 'reload', origin, url, init);
+          if (reloaded && isUsable(reloaded)) return reloaded;
+          fallback ??= reloaded;
         }
         return fallback;
       } catch {

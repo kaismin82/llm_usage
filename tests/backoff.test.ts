@@ -34,10 +34,10 @@ describe('nextAttemptAt', () => {
     expect(nextAttemptAt(now, 1, 'rate_limited', 20)?.toISOString()).toBe('2026-10-01T12:30:00.000Z');
   });
 
-  it('circuit-breaks challenges: at least an hour, doubling up to six hours', () => {
-    expect(nextAttemptAt(now, 3, 'challenge', 1)?.toISOString()).toBe('2026-10-01T13:00:00.000Z');
-    expect(nextAttemptAt(now, 3, 'challenge', 3)?.toISOString()).toBe('2026-10-01T16:00:00.000Z');
-    expect(nextAttemptAt(now, 3, 'challenge', 20)?.toISOString()).toBe('2026-10-01T18:00:00.000Z');
+  it('circuit-breaks challenges: 5 minutes doubling, capped at 10 minutes', () => {
+    expect(nextAttemptAt(now, 3, 'challenge', 1)?.toISOString()).toBe('2026-10-01T12:05:00.000Z');
+    expect(nextAttemptAt(now, 3, 'challenge', 3)?.toISOString()).toBe('2026-10-01T12:10:00.000Z');
+    expect(nextAttemptAt(now, 3, 'challenge', 20)?.toISOString()).toBe('2026-10-01T12:10:00.000Z');
   });
 
   it.each(['error', 'schema_changed'] as const)(
