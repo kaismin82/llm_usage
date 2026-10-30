@@ -75,10 +75,13 @@ describe('createTabBridge', () => {
 
     function makeMulti(tabs: Array<{ id?: number; status?: string; discarded?: boolean }>, script: (tabId: number, call: number) => unknown) {
       const calls = new Map<number, number>();
+      const order: string[] = [];
       const reload = vi.fn().mockResolvedValue(undefined);
-      const waitForComplete = vi.fn().mockResolvedValue(undefined);
+      const activate = vi.fn(async (id: number) => { order.push(`activate:${id}`); });
+      const waitForComplete = vi.fn(async (id: number) => { order.push(`wait:${id}`); });
       const executeScript = vi.fn(async (injection: { target: { tabId: number } }) => {
         const id = injection.target.tabId;
+        order.push(`exec:${id}`);
         const n = (calls.get(id) ?? 0) + 1;
         calls.set(id, n);
         const value = script(id, n);
@@ -86,11 +89,49 @@ describe('createTabBridge', () => {
         return [{ result: value }];
       });
       const api = {
-        tabs: { query: vi.fn().mockResolvedValue(tabs), reload, waitForComplete },
+        tabs: { query: vi.fn().mockResolvedValue(tabs), reload, activate, waitForComplete },
         scripting: { executeScript },
       } as unknown as TabBridgeApi;
-      return { api, reload, waitForComplete, executeScript };
+      return { api, reload, activate, waitForComplete, executeScript, order };
     }
+
+    it('activates a fully discarded tab, waits for load, then fetches', async () => {
+      const { api, activate, reload, order } = makeMulti([{ id: 5, discarded: true, status: 'unloaded' }], () => good);
+
+      const result = await createTabBridge(api).fetchViaTab(URL, {});
+
+      expect(result).toMatchObject({ status: 200, json: { usage: 1 } });
+      expect(activate).toHaveBeenCalledWith(5);
+      expect(order).toEqual(['activate:5', 'wait:5', 'exec:5']);
+      expect(reload).not.toHaveBeenCalled();
+    });
+
+    it('uses a healthy tab without activating a discarded one', async () => {
+      const { api, activate, executeScript } = makeMulti(
+        [{ id: 1, discarded: true }, { id: 2, status: 'complete' }],
+        () => good,
+      );
+
+      await createTabBridge(api).fetchViaTab(URL, {});
+
+      expect(activate).not.toHaveBeenCalled();
+      expect(executeScript.mock.calls.map(([i]) => i.target.tabId)).toEqual([2]);
+    });
+
+    it('does not activate a discarded tab again within the cooldown', async () => {
+      let clock = 1_000;
+      const { api, activate } = makeMulti([{ id: 5, discarded: true }], () => html);
+      const bridge = createTabBridge(api, () => clock);
+
+      await bridge.fetchViaTab(URL, {});
+      clock += TAB_RELOAD_COOLDOWN_MS - 1;
+      await bridge.fetchViaTab(URL, {});
+      expect(activate).toHaveBeenCalledTimes(1);
+
+      clock += 1;
+      await bridge.fetchViaTab(URL, {});
+      expect(activate).toHaveBeenCalledTimes(2);
+    });
 
     it('skips a stuck first tab and uses the healthy second tab without reloading', async () => {
       const { api, reload, executeScript } = makeMulti(
