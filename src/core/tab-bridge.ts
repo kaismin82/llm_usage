@@ -8,9 +8,18 @@ interface TabFetchResponse {
   text: string;
 }
 
+interface TabInfo {
+  id?: number;
+  status?: string;
+  discarded?: boolean;
+}
+
 export interface TabBridgeApi {
   tabs: {
-    query(queryInfo: { url: string }): Promise<Array<{ id?: number }>>;
+    query(queryInfo: { url: string }): Promise<TabInfo[]>;
+    reload?(tabId: number): Promise<void>;
+    /** Resolves once the tab finished loading or the bound elapsed; never rejects. */
+    waitForComplete?(tabId: number, timeoutMs: number): Promise<void>;
   };
   scripting: {
     executeScript(injection: {
@@ -26,10 +35,26 @@ export interface TabBridge {
   fetchViaTab(url: string, init: HttpRequestInit): Promise<HttpResult | null>;
 }
 
+export const TAB_RELOAD_COOLDOWN_MS = 10 * 60_000;
+const TAB_RELOAD_WAIT_MS = 30_000;
+
 function chromeApi(): TabBridgeApi {
   return {
     tabs: {
       query: (queryInfo) => chrome.tabs.query(queryInfo),
+      reload: (tabId) => chrome.tabs.reload(tabId),
+      waitForComplete: (tabId, timeoutMs) => new Promise<void>((resolve) => {
+        const finish = () => {
+          clearTimeout(timer);
+          chrome.tabs.onUpdated.removeListener(listener);
+          resolve();
+        };
+        const listener = (updatedId: number, change: { status?: string }) => {
+          if (updatedId === tabId && change.status === 'complete') finish();
+        };
+        const timer = setTimeout(finish, timeoutMs);
+        chrome.tabs.onUpdated.addListener(listener);
+      }),
     },
     scripting: {
       executeScript: (injection) => chrome.scripting.executeScript(injection),
@@ -48,25 +73,70 @@ async function fetchFromTab(url: string, headers: Record<string, string>, timeou
   return { status: response.status, headers: resultHeaders, text: await response.text() };
 }
 
-export function createTabBridge(api?: TabBridgeApi): TabBridge {
+// A usable answer is JSON, a challenge (the circuit breaker needs it), or a
+// non-2xx status. A 2xx non-JSON body means the tab shows an error or sign-in page.
+function isUsable(result: HttpResult): boolean {
+  const ok = result.status >= 200 && result.status < 300;
+  return result.json !== undefined || result.challenge || !ok;
+}
+
+export function createTabBridge(api?: TabBridgeApi, now: () => number = Date.now): TabBridge {
+  const lastReloadAt = new Map<number, number>();
+
+  async function attempt(bridgeApi: TabBridgeApi, tabId: number, url: string, init: HttpRequestInit): Promise<HttpResult | null> {
+    try {
+      const results = await bridgeApi.scripting.executeScript({
+        target: { tabId },
+        world: 'ISOLATED',
+        func: fetchFromTab,
+        args: [url, init.headers ?? {}, init.timeoutMs ?? 15_000],
+      });
+      const result = results[0]?.result;
+      return result ? buildHttpResult(result.status, result.headers, result.text) : null;
+    } catch {
+      return null;
+    }
+  }
+
   return {
     async fetchViaTab(url, init) {
       try {
         const origin = assertAllowed(url, 'GET').origin;
         const bridgeApi = api ?? chromeApi();
         const tabs = await bridgeApi.tabs.query({ url: `${origin}/*` });
-        const tabId = tabs.find((tab) => tab.id !== undefined)?.id;
-        if (tabId === undefined) return null;
+        const ids: number[] = [];
+        for (const wantComplete of [true, false]) {
+          for (const tab of tabs) {
+            if (tab.id === undefined || tab.discarded || ids.includes(tab.id)) continue;
+            if ((tab.status === 'complete') === wantComplete) ids.push(tab.id);
+          }
+        }
+        if (ids.length === 0) return null;
 
-        const results = await bridgeApi.scripting.executeScript({
-          target: { tabId },
-          world: 'ISOLATED',
-          func: fetchFromTab,
-          args: [url, init.headers ?? {}, init.timeoutMs ?? 15_000],
-        });
-        const result = results[0]?.result;
-        if (!result) return null;
-        return buildHttpResult(result.status, result.headers, result.text);
+        let fallback: HttpResult | null = null;
+        for (const tabId of ids) {
+          const result = await attempt(bridgeApi, tabId, url, init);
+          if (!result) continue;
+          if (isUsable(result)) return result;
+          fallback ??= result;
+        }
+
+        // Every candidate failed or showed a non-JSON page: reload the first one, at most once per cooldown.
+        const target = ids[0];
+        const last = lastReloadAt.get(target);
+        if (bridgeApi.tabs.reload && (last === undefined || now() - last >= TAB_RELOAD_COOLDOWN_MS)) {
+          lastReloadAt.set(target, now());
+          try {
+            await bridgeApi.tabs.reload(target);
+            await bridgeApi.tabs.waitForComplete?.(target, TAB_RELOAD_WAIT_MS);
+            const retried = await attempt(bridgeApi, target, url, init);
+            if (retried && isUsable(retried)) return retried;
+            fallback ??= retried;
+          } catch {
+            // reload failed; fall through to the existing behavior
+          }
+        }
+        return fallback;
       } catch {
         return null;
       }
